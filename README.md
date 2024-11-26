@@ -28,7 +28,7 @@ python manage.py runserver
 ### Docker
 
 ```
-docker compose -f compose-dev.yaml up --no-deps --build
+docker compose -f compose-dev.yaml up
 ```
 
 To create admion user
