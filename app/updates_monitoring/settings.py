@@ -33,6 +33,7 @@ ALLOWED_HOSTS = ['localhost', '0.0.0.0']
 
 INSTALLED_APPS = [
     'core.apps.CoreConfig',
+    'proxmox.apps.ProxmoxConfig',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
