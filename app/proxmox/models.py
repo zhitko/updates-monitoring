@@ -9,7 +9,8 @@ class Provider(BaseProvider):
 
     proxmox_host = models.CharField(max_length=20)
     proxmox_user = models.CharField(max_length=20)
-    proxmox_password = models.CharField(max_length=20)
+    proxmox_token_name = models.CharField(max_length=50)
+    proxmox_token_value = models.CharField(max_length=50)
 
     def __init__(self, *args, **kwargs):
         self._meta.get_field('provider_type').default = PROVIDER_TYPE
@@ -19,7 +20,8 @@ class Provider(BaseProvider):
         return ProxmoxAPI(
             host=self.proxmox_host,
             user=self.proxmox_user,
-            password=self.proxmox_password,
+            token_name=self.proxmox_token_name,
+            token_value=self.proxmox_token_value,
             verify_ssl=False
         )
 
