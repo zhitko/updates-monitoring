@@ -28,13 +28,13 @@ python manage.py runserver
 ### Docker
 
 ```
-docker compose -f compose-dev.yaml up
+docker compose -f compose-dev.yaml up --no-deps --build
 ```
 
 To create admion user
 
 ```
-docker compose exec server python manage.py createsuperuser
+docker compose -f compose-dev.yaml exec server python manage.py createsuperuser
 ```
 
 ## Production

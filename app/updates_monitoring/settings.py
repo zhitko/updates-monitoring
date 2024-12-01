@@ -32,6 +32,7 @@ ALLOWED_HOSTS = ['localhost', '0.0.0.0']
 # Application definition
 
 INSTALLED_APPS = [
+    'influxdb_processor.apps.InfluxdbProcessorConfig',
     'core.apps.CoreConfig',
     'proxmox.apps.ProxmoxConfig',
     'django.contrib.admin',
