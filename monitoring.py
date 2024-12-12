@@ -47,6 +47,16 @@ class Config:
     def __init__(self, **entries):
         self.__dict__.update(entries)
 
+    def get(self, item):
+        if item in self.__dict__.keys():
+            return self.__dict__[item]
+        elif item in Config.__dict__.keys():
+            return Config.__dict__[item]
+        return None
+
+    def set(self, item, value):
+        self.__dict__.update({item: value})
+
 config = Config()
 
 def load_config():
@@ -386,23 +396,23 @@ class Terminal:
                         self.KEY_DESC: 'Update config',
                         self.KEY_SUBM: {
                             'INFLUX_HOST': {
-                                self.KEY_EXEC: self.command_update_config_host,
+                                self.KEY_EXEC: lambda: self.command_update_config_item('INFLUX_HOST'),
                                 self.KEY_DESC: '',
                             },
                             'INFLUX_PORT': {
-                                self.KEY_EXEC: self.command_update_config_port,
+                                self.KEY_EXEC: lambda: self.command_update_config_item('INFLUX_PORT'),
                                 self.KEY_DESC: '',
                             },
                             'INFLUX_ORG': {
-                                self.KEY_EXEC: self.command_update_config_org,
+                                self.KEY_EXEC: lambda: self.command_update_config_item('INFLUX_ORG'),
                                 self.KEY_DESC: '',
                             },
                             'INFLUX_BUCKET': {
-                                self.KEY_EXEC: self.command_update_config_bucket,
+                                self.KEY_EXEC: lambda: self.command_update_config_item('INFLUX_BUCKET'),
                                 self.KEY_DESC: '',
                             },
                             'INFLUX_TOKEN': {
-                                self.KEY_EXEC: self.command_update_config_token,
+                                self.KEY_EXEC: lambda: self.command_update_config_item('INFLUX_TOKEN'),
                                 self.KEY_DESC: '',
                             },
                             self.COMMAND_BACK: {
@@ -491,44 +501,15 @@ class Terminal:
     def command_update_config(self):
         items = self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM][self.COMMAND_CONFIG][self.KEY_SUBM]
         for item in items:
-            if item in config.__dict__.keys():
-                items[item][self.KEY_DESC] = config.__dict__[item]
-            elif item in Config.__dict__.keys():
-                items[item][self.KEY_DESC] = Config.__dict__[item]
+            value = config.get(item)
+            if value:
+                items[item][self.KEY_DESC] = value
         self.command_menu(items)
 
-    def command_update_config_host(self):
+    def command_update_config_item(self, item):
         self._clear_console()
-        print(f'Current value: {config.INFLUX_HOST}')
-        config.INFLUX_HOST = input("Enter Influx host: ")
-        save_config()
-        self.command_update_config()
-
-    def command_update_config_port(self):
-        self._clear_console()
-        print(f'Current value: {config.INFLUX_PORT}')
-        config.INFLUX_PORT = input("Enter Influx port: ")
-        save_config()
-        self.command_update_config()
-
-    def command_update_config_org(self):
-        self._clear_console()
-        print(f'Current value: {config.INFLUX_ORG}')
-        config.INFLUX_ORG = input("Enter Influx org: ")
-        save_config()
-        self.command_update_config()
-
-    def command_update_config_bucket(self):
-        self._clear_console()
-        print(f'Current value: {config.INFLUX_BUCKET}')
-        config.INFLUX_BUCKET = input("Enter Influx bucket: ")
-        save_config()
-        self.command_update_config()
-
-    def command_update_config_token(self):
-        self._clear_console()
-        print(f'Current value: {config.INFLUX_TOKEN}')
-        config.INFLUX_TOKEN = input("Enter Influx token: ")
+        print(f'Current value: {config.get(item)}')
+        config.set(item, input("Enter Influx host: "))
         save_config()
         self.command_update_config()
 
