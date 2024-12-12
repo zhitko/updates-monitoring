@@ -1,9 +1,12 @@
+import sys
 import subprocess
+import os
 import json
 import requests
 import time
-import os
 from typing import Dict, List
+import termios
+import tty
 
 # -------------------------------------------------------------------------------------
 # General config
@@ -311,10 +314,132 @@ class InfluxDBSender:
             print('error = %s' % e)
 
 
-monitoring = PVEMonitoring()
-res = monitoring.process()
-# res = {'105': {'lscr.io/linuxserver/transmission:latest': {'type': 'docker', 'local_current_digest': 'sha256:25692848ea167ef57f3914a55393d48b7a96c201a0dcc2002e316bcd146ddd8c', 'local_current_version': '4.0.6-r0-ls272', 'remote_current_digest': 'sha256:25692848ea167ef57f3914a55393d48b7a96c201a0dcc2002e316bcd146ddd8c', 'remote_current_version': '4.0.6-r0-ls272', 'remote_latest_digest': 'sha256:25692848ea167ef57f3914a55393d48b7a96c201a0dcc2002e316bcd146ddd8c', 'remote_latest_version': '4.0.6-r0-ls272'}, 'portainer/agent:2.21.3': {'type': 'docker', 'local_current_digest': 'sha256:0298f083ae43930ae3cbc9cacafa89be6d5a3e2ab0aff5312a84712916e8d234', 'local_current_version': '-', 'remote_current_digest': 'sha256:0298f083ae43930ae3cbc9cacafa89be6d5a3e2ab0aff5312a84712916e8d234', 'remote_current_version': '-', 'remote_latest_digest': 'sha256:b87309640050c93433244b41513de186f9456e1024bfc9541bc9a8341c1b0938', 'remote_latest_version': '-'}}}
-print('result = %s' % res)
-influx_sender = InfluxDBSender()
-influx_sender.send(res)
+class Terminal:
+    KEY_EXEC = 'execute'
+    KEY_DESC = 'description'
+    KEY_SUBM = 'commands'
 
+    COMMAND_HELP = 'help'
+    COMMAND_PROC = 'process'
+    COMMAND_CONF = 'config'
+    COMMAND_MENU = 'menu'
+    COMMAND_EXIT = 'exit'
+
+    def __init__(self, args):
+        self.action = (args[1:]+['menu'])[0]
+        self.args = args[2:]
+        self.commands = {
+            self.COMMAND_HELP: {
+                self.KEY_EXEC: self.command_help,
+                self.KEY_DESC: 'Show help',
+            },
+            self.COMMAND_PROC: {
+                self.KEY_EXEC: self.command_process,
+                self.KEY_DESC: 'Run monitoring round',
+            },
+            self.COMMAND_CONF: {
+                self.KEY_EXEC: self.command_configure,
+                self.KEY_DESC: 'Run configuration process',
+                self.KEY_SUBM: {
+                    'update-crone': {
+                        self.KEY_EXEC: exit,
+                        self.KEY_DESC: 'Update cron',
+                    },
+                    'back': {
+                        self.KEY_EXEC: self.command_menu,
+                        self.KEY_DESC: 'Back to main menu',
+                    },
+                    self.COMMAND_EXIT: {
+                        self.KEY_EXEC: exit,
+                        self.KEY_DESC: 'Exit to terminal',
+                    },
+                }
+            },
+            self.COMMAND_MENU: {
+                self.KEY_EXEC: self.command_menu,
+                self.KEY_DESC: 'Show main menu',
+            },
+            self.COMMAND_EXIT: {
+                self.KEY_EXEC: exit,
+                self.KEY_DESC: 'Exit to terminal',
+            },
+        }
+        self.current_command = self.commands[self.action]
+        self._run_command(self.current_command)
+
+    def _run_command(self, command):
+        command[self.KEY_EXEC]()
+
+    def _clear_console(self):
+        os.system('cls' if os.name=='nt' else 'clear')
+    
+    def _getch(self):
+        fd = sys.stdin.fileno()
+        orig = termios.tcgetattr(fd)
+
+        try:
+            tty.setcbreak(fd)
+            return sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSAFLUSH, orig)
+
+    def _show_menu(self, commands, index):
+        self._clear_console()
+        print('Select action...')
+        selected_command_key = None
+        if index >= len(commands.keys()):
+            index = len(commands.keys()) - 1
+        if index < 0:
+            index = 0
+        for idx, command in enumerate(commands.keys()):
+            if index == idx:
+                selector = '-->'
+                selected_command_key = command
+            else:
+                selector = '   '
+            print(f"{selector}\t{command}\t{commands[command][self.KEY_DESC]}")
+        c = self._getch()
+        # Up arrow key
+        if c == 'A':
+            index-=1
+        # Down arrow key
+        elif c == 'B':
+            index+=1
+        # Enter key
+        elif c == "\n":
+            return (index, commands[selected_command_key])
+        return (index, None)
+
+    def command_configure(self):
+        sub_action = (self.args+[None])[0]
+        if not sub_action:
+            self.command_menu(self.commands[self.COMMAND_CONF][self.KEY_SUBM])
+        elif sub_action not in self.commands[self.COMMAND_CONF][self.KEY_SUBM].keys():
+            print(f'Error: wrong action {sub_action}')
+        else:
+            self._run_command(self.commands[self.COMMAND_CONF][self.KEY_SUBM][sub_action])
+                
+    def command_menu(self, commands = None):
+        if not commands:
+            commands = self.commands
+        index = 0
+        selected_command = None
+        while selected_command is None:
+            (index, selected_command) = self._show_menu(commands, index)
+        self._run_command(selected_command)
+
+    def command_help(self):
+        print('Commands:')
+        for command in self.commands.keys():
+            print(f"\t{command}\t{self.commands[command][self.KEY_DESC]}")
+
+    def command_process(self):
+        monitoring = PVEMonitoring()
+        res = monitoring.process()
+        # res = {'105': {'lscr.io/linuxserver/transmission:latest': {'type': 'docker', 'local_current_digest': 'sha256:25692848ea167ef57f3914a55393d48b7a96c201a0dcc2002e316bcd146ddd8c', 'local_current_version': '4.0.6-r0-ls272', 'remote_current_digest': 'sha256:25692848ea167ef57f3914a55393d48b7a96c201a0dcc2002e316bcd146ddd8c', 'remote_current_version': '4.0.6-r0-ls272', 'remote_latest_digest': 'sha256:25692848ea167ef57f3914a55393d48b7a96c201a0dcc2002e316bcd146ddd8c', 'remote_latest_version': '4.0.6-r0-ls272'}, 'portainer/agent:2.21.3': {'type': 'docker', 'local_current_digest': 'sha256:0298f083ae43930ae3cbc9cacafa89be6d5a3e2ab0aff5312a84712916e8d234', 'local_current_version': '-', 'remote_current_digest': 'sha256:0298f083ae43930ae3cbc9cacafa89be6d5a3e2ab0aff5312a84712916e8d234', 'remote_current_version': '-', 'remote_latest_digest': 'sha256:b87309640050c93433244b41513de186f9456e1024bfc9541bc9a8341c1b0938', 'remote_latest_version': '-'}}}
+        print('result = %s' % res)
+        influx_sender = InfluxDBSender()
+        influx_sender.send(res)
+
+if __name__ == '__main__':
+    Terminal(sys.argv)
