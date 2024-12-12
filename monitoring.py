@@ -7,38 +7,53 @@ import time
 from typing import Dict, List
 import termios
 import tty
+from pathlib import Path
 
-# -------------------------------------------------------------------------------------
-# General config
-# -------------------------------------------------------------------------------------
-DEBUG_MODE = True
-MANIFESTS_FOLDER = 'manifests'
-USE_CACHE = True
-# -------------------------------------------------------------------------------------
-# Docker manifest config
-# -------------------------------------------------------------------------------------
-DOCKER_ARCHITECTURE = 'amd64'
-DOCKER_OS = 'linux'
-# -------------------------------------------------------------------------------------
-# Influx config
-# -------------------------------------------------------------------------------------
-INFLUX_HOST = ''
-INFLUX_PORT = '8086'
-INFLUX_ORG = 'home'
-INFLUX_BUCKET = 'pve_updates'
-INFLUX_TOKEN = ''
-# -------------------------------------------------------------------------------------
 
-container_processors_mapping = {
-    '102': ['docker'],
-    # '103': ['docker'],
-    '104': ['docker'],
-    '105': ['docker'],
-    '106': ['docker'],
-    # '108': ['docker'],
-    '109': ['docker'],
-    '112': ['docker'],
-}
+class Config:
+    # -------------------------------------------------------------------------------------
+    # General config
+    # -------------------------------------------------------------------------------------
+    CONFIG_FILE = './monitoring.json'
+    DEBUG_MODE = True
+    MANIFESTS_FOLDER = 'manifests'
+    USE_CACHE = True
+    # -------------------------------------------------------------------------------------
+    # Docker manifest config
+    # -------------------------------------------------------------------------------------
+    DOCKER_ARCHITECTURE = 'amd64'
+    DOCKER_OS = 'linux'
+    # -------------------------------------------------------------------------------------
+    # Influx config
+    # -------------------------------------------------------------------------------------
+    INFLUX_HOST = ''
+    INFLUX_PORT = '8086'
+    INFLUX_ORG = 'home'
+    INFLUX_BUCKET = 'pve_updates'
+    INFLUX_TOKEN = ''
+    # -------------------------------------------------------------------------------------
+
+    container_processors_mapping = {
+        '102': ['docker'],
+        # '103': ['docker'],
+        '104': ['docker'],
+        '105': ['docker'],
+        '106': ['docker'],
+        # '108': ['docker'],
+        '109': ['docker'],
+        '112': ['docker'],
+    }
+
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
+
+config = Config()
+
+def load_config():
+    return read_json(config.CONFIG_FILE, vars(config))
+
+def save_config():
+    write_json(vars(config), config.CONFIG_FILE)
 
 # -------------------------------------------------------------------------------------
 # Utilities
@@ -59,6 +74,31 @@ def dict_deep_get(obj: Dict, route: List[str]):
             return dict_deep_get(value, route[1::])
     return value or ''
 
+
+def is_file_exists(file_path):
+    file = Path(file_path)
+    return file.is_file()
+
+
+def write_json(data, file_path):
+    json_object = json.dumps(data, indent=4, ensure_ascii=False)
+    with open(file_path, 'w') as outfile:
+        outfile.write(json_object)
+
+
+def read_json(file_path, default = None):
+    print(file_path)
+    print(default)
+    if not default:
+        default = {}
+    if not is_file_exists(file_path):
+        return default
+    with open(file_path) as infile:
+        try:
+            return json.load(infile)
+        except:
+            return default
+
 # -------------------------------------------------------------------------------------
 # Main processes
 # -------------------------------------------------------------------------------------
@@ -74,13 +114,13 @@ class DockerProcessor:
     def __init__(self, container_id):
         self.container_id = container_id
         self.type = 'docker'
-        if DEBUG_MODE:
+        if config.DEBUG_MODE:
             try:
-                os.mkdir(MANIFESTS_FOLDER)
+                os.mkdir(config.MANIFESTS_FOLDER)
             except FileExistsError:
                 pass
             except PermissionError:
-                print(f"Permission denied: Unable to create '{MANIFESTS_FOLDER}'.")
+                print(f"Permission denied: Unable to create '{config.MANIFESTS_FOLDER}'.")
             except Exception as e:
                 print(f"An error occurred: {e}")
 
@@ -93,7 +133,7 @@ class DockerProcessor:
         return [line.decode('utf-8').strip() for line in result.stdout]
 
     def __debug_write_manifest_info(self, image_name, prefix, lines):
-        with open(f'{MANIFESTS_FOLDER}/{image_name.replace("/", "_")}_{prefix}.txt', 'w') as f:
+        with open(f'{config.MANIFESTS_FOLDER}/{image_name.replace("/", "_")}_{prefix}.txt', 'w') as f:
             f.writelines(f'Container id = {self.container_id}\n')
             f.writelines(f'Image = {image_name}\n')
             for line in lines:
@@ -107,12 +147,12 @@ class DockerProcessor:
         digest = ''
 
         manifest_res = self.__exec_command(self.Commands.docker_inspect.format(image_name=image_name))
-        if DEBUG_MODE:
+        if config.DEBUG_MODE:
             self.__debug_write_manifest_info(image_name, 'current_local', manifest_res)
         manifests_json = json.loads(''.join(manifest_res))
 
         for manifest_json in manifests_json:
-            if manifest_json.get('Architecture') == DOCKER_ARCHITECTURE:
+            if manifest_json.get('Architecture') == config.DOCKER_ARCHITECTURE:
                 repo_digest = manifest_json.get('RepoDigests')
                 if len(repo_digest) > 0:
                     digest = repo_digest[0].split('@')[-1]
@@ -132,14 +172,14 @@ class DockerProcessor:
 
         # get current remote info
         manifest_res = self.__exec_command(self.Commands.docker_buildx_inspect.format(image_name=image_name))
-        if DEBUG_MODE:
+        if config.DEBUG_MODE:
             self.__debug_write_manifest_info(image_name, 'remote_current', manifest_res)
         manifest_json = json.loads(''.join(manifest_res))
 
         response['current_remote'] = {
             'digest': dict_deep_get(manifest_json, ['manifest', 'digest']) or '-',
             'version': dict_deep_get(manifest_json, [
-                'image', f'{DOCKER_OS}/{DOCKER_ARCHITECTURE}', 'config', 'Labels', 'org.opencontainers.image.version'
+                'image', f'{config.DOCKER_OS}/{config.DOCKER_ARCHITECTURE}', 'config', 'Labels', 'org.opencontainers.image.version'
             ]) or '-',
         }
 
@@ -150,14 +190,14 @@ class DockerProcessor:
             latest_manifest_res = self.__exec_command(
                 self.Commands.docker_buildx_inspect.format(image_name=f'{image_name_without_tag}:latest')
             )
-            if DEBUG_MODE:
+            if config.DEBUG_MODE:
                 self.__debug_write_manifest_info(image_name, 'remote_latest', latest_manifest_res)
             latest_manifest_json = json.loads(''.join(latest_manifest_res))
 
             response['latest_remote'] = {
                 'digest': dict_deep_get(latest_manifest_json, ['manifest', 'digest']) or '-',
                 'version': dict_deep_get(latest_manifest_json, [
-                    'image', f'{DOCKER_OS}/{DOCKER_ARCHITECTURE}', 'config', 'Labels', 'org.opencontainers.image.version'
+                    'image', f'{config.DOCKER_OS}/{config.DOCKER_ARCHITECTURE}', 'config', 'Labels', 'org.opencontainers.image.version'
                 ]) or '-',
             }
         return response
@@ -251,7 +291,7 @@ class PVEMonitoring:
         containers_ids = self._get_containers_ids()
         print(f'Got containers = {containers_ids}')
         for container_id in containers_ids:
-            processors_labels = container_processors_mapping.get(container_id, [])
+            processors_labels = config.container_processors_mapping.get(container_id, [])
             for processor_label in processors_labels:
                 processor = processors_mapping.get(processor_label)
                 if not processor:
@@ -264,11 +304,11 @@ class PVEMonitoring:
 
 class InfluxDBSender:
     def __init__(self):
-        self.host = INFLUX_HOST
-        self.port = INFLUX_PORT
-        self.org = INFLUX_ORG
-        self.bucket = INFLUX_BUCKET
-        self.token = INFLUX_TOKEN
+        self.host = config.INFLUX_HOST
+        self.port = config.INFLUX_PORT
+        self.org = config.INFLUX_ORG
+        self.bucket = config.INFLUX_BUCKET
+        self.token = config.INFLUX_TOKEN
 
     def _prepare_data(self, monitoring_info):
         data_raws = []
@@ -321,12 +361,14 @@ class Terminal:
 
     COMMAND_HELP = 'help'
     COMMAND_PROC = 'process'
-    COMMAND_CONF = 'config'
+    COMMAND_SETTINGS = 'settings'
+    COMMAND_CONFIG = 'update-config'
     COMMAND_MENU = 'menu'
     COMMAND_EXIT = 'exit'
+    COMMAND_BACK = 'back'
 
     def __init__(self, args):
-        self.action = (args[1:]+['menu'])[0]
+        self.action = (args[1:]+[None])[0]
         self.args = args[2:]
         self.commands = {
             self.COMMAND_HELP: {
@@ -337,15 +379,45 @@ class Terminal:
                 self.KEY_EXEC: self.command_process,
                 self.KEY_DESC: 'Run monitoring round',
             },
-            self.COMMAND_CONF: {
-                self.KEY_EXEC: self.command_configure,
-                self.KEY_DESC: 'Run configuration process',
+            self.COMMAND_SETTINGS: {
+                self.KEY_EXEC: self.command_settings,
+                self.KEY_DESC: 'Settings',
                 self.KEY_SUBM: {
+                    self.COMMAND_CONFIG: {
+                        self.KEY_EXEC: self.command_update_config,
+                        self.KEY_DESC: 'Update config',
+                        self.KEY_SUBM: {
+                            'INFLUX_HOST': {
+                                self.KEY_EXEC: self.command_update_config_host,
+                                self.KEY_DESC: '',
+                            },
+                            'INFLUX_PORT': {
+                                self.KEY_EXEC: self.command_update_config_port,
+                                self.KEY_DESC: '',
+                            },
+                            'INFLUX_ORG': {
+                                self.KEY_EXEC: self.command_update_config_org,
+                                self.KEY_DESC: '',
+                            },
+                            'INFLUX_BUCKET': {
+                                self.KEY_EXEC: self.command_update_config_bucket,
+                                self.KEY_DESC: '',
+                            },
+                            'INFLUX_TOKEN': {
+                                self.KEY_EXEC: self.command_update_config_token,
+                                self.KEY_DESC: '',
+                            },
+                            self.COMMAND_BACK: {
+                                self.KEY_EXEC: self.command_menu,
+                                self.KEY_DESC: 'Back to main menu',
+                            },
+                        },
+                    },
                     'update-crone': {
                         self.KEY_EXEC: exit,
                         self.KEY_DESC: 'Update cron',
                     },
-                    'back': {
+                    self.COMMAND_BACK: {
                         self.KEY_EXEC: self.command_menu,
                         self.KEY_DESC: 'Back to main menu',
                     },
@@ -353,19 +425,18 @@ class Terminal:
                         self.KEY_EXEC: exit,
                         self.KEY_DESC: 'Exit to terminal',
                     },
-                }
-            },
-            self.COMMAND_MENU: {
-                self.KEY_EXEC: self.command_menu,
-                self.KEY_DESC: 'Show main menu',
+                },
             },
             self.COMMAND_EXIT: {
                 self.KEY_EXEC: exit,
                 self.KEY_DESC: 'Exit to terminal',
             },
         }
-        self.current_command = self.commands[self.action]
-        self._run_command(self.current_command)
+        if self.action:
+            self.current_command = self.commands[self.action]
+            self._run_command(self.current_command)
+        else:
+            self.command_menu()
 
     def _run_command(self, command):
         command[self.KEY_EXEC]()
@@ -393,11 +464,11 @@ class Terminal:
             index = 0
         for idx, command in enumerate(commands.keys()):
             if index == idx:
-                selector = '-->'
+                selector = '[*]'
                 selected_command_key = command
             else:
-                selector = '   '
-            print(f"{selector}\t{command}\t{commands[command][self.KEY_DESC]}")
+                selector = '[ ]'
+            print(f"{selector} {command} {commands[command][self.KEY_DESC]:>{30 - len(command)}}")
         c = self._getch()
         # Up arrow key
         if c == 'A':
@@ -410,15 +481,59 @@ class Terminal:
             return (index, commands[selected_command_key])
         return (index, None)
 
-    def command_configure(self):
+    def command_settings(self):
         sub_action = (self.args+[None])[0]
         if not sub_action:
-            self.command_menu(self.commands[self.COMMAND_CONF][self.KEY_SUBM])
-        elif sub_action not in self.commands[self.COMMAND_CONF][self.KEY_SUBM].keys():
+            self.command_menu(self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM])
+        elif sub_action not in self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM].keys():
             print(f'Error: wrong action {sub_action}')
         else:
-            self._run_command(self.commands[self.COMMAND_CONF][self.KEY_SUBM][sub_action])
-                
+            self._run_command(self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM][sub_action])
+
+    def command_update_config(self):
+        items = self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM][self.COMMAND_CONFIG][self.KEY_SUBM]
+        for item in items:
+            if item in config.__dict__.keys():
+                items[item][self.KEY_DESC] = config.__dict__[item]
+            elif item in Config.__dict__.keys():
+                items[item][self.KEY_DESC] = Config.__dict__[item]
+        self.command_menu(items)
+
+    def command_update_config_host(self):
+        self._clear_console()
+        print(f'Current value: {config.INFLUX_HOST}')
+        config.INFLUX_HOST = input("Enter Influx host: ")
+        save_config()
+        self.command_update_config()
+
+    def command_update_config_port(self):
+        self._clear_console()
+        print(f'Current value: {config.INFLUX_PORT}')
+        config.INFLUX_PORT = input("Enter Influx port: ")
+        save_config()
+        self.command_update_config()
+
+    def command_update_config_org(self):
+        self._clear_console()
+        print(f'Current value: {config.INFLUX_ORG}')
+        config.INFLUX_ORG = input("Enter Influx org: ")
+        save_config()
+        self.command_update_config()
+
+    def command_update_config_bucket(self):
+        self._clear_console()
+        print(f'Current value: {config.INFLUX_BUCKET}')
+        config.INFLUX_BUCKET = input("Enter Influx bucket: ")
+        save_config()
+        self.command_update_config()
+
+    def command_update_config_token(self):
+        self._clear_console()
+        print(f'Current value: {config.INFLUX_TOKEN}')
+        config.INFLUX_TOKEN = input("Enter Influx token: ")
+        save_config()
+        self.command_update_config()
+
     def command_menu(self, commands = None):
         if not commands:
             commands = self.commands
@@ -442,4 +557,5 @@ class Terminal:
         influx_sender.send(res)
 
 if __name__ == '__main__':
+    config = Config(**load_config())
     Terminal(sys.argv)
