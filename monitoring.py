@@ -2,7 +2,15 @@ import subprocess
 import json
 import requests
 import time
+import os
+from typing import Dict, List
 
+# -------------------------------------------------------------------------------------
+# General config
+# -------------------------------------------------------------------------------------
+DEBUG_MODE = True
+MANIFESTS_FOLDER = 'manifests'
+USE_CACHE = True
 # -------------------------------------------------------------------------------------
 # Docker manifest config
 # -------------------------------------------------------------------------------------
@@ -11,13 +19,12 @@ DOCKER_OS = 'linux'
 # -------------------------------------------------------------------------------------
 # Influx config
 # -------------------------------------------------------------------------------------
-INFLUX_HOST = 'http://192.168.1.78'
+INFLUX_HOST = ''
 INFLUX_PORT = '8086'
 INFLUX_ORG = 'home'
 INFLUX_BUCKET = 'pve_updates'
 INFLUX_TOKEN = ''
 # -------------------------------------------------------------------------------------
-
 
 container_processors_mapping = {
     '102': ['docker'],
@@ -30,6 +37,29 @@ container_processors_mapping = {
     '112': ['docker'],
 }
 
+# -------------------------------------------------------------------------------------
+# Utilities
+# -------------------------------------------------------------------------------------
+
+
+def dict_deep_get(obj: Dict, route: List[str]):
+    """
+    recursive function which allows to get value from dict with several levels by route
+    """
+    count_points = len(route)
+    value = ''
+    for count, point in enumerate(route):
+        value = obj.get(point, {})
+        if count + 1 != count_points:
+            if not isinstance(value, dict):
+                return ''
+            return dict_deep_get(value, route[1::])
+    return value or ''
+
+# -------------------------------------------------------------------------------------
+# Main processes
+# -------------------------------------------------------------------------------------
+
 
 class DockerProcessor:
     class Commands:
@@ -41,6 +71,15 @@ class DockerProcessor:
     def __init__(self, container_id):
         self.container_id = container_id
         self.type = 'docker'
+        if DEBUG_MODE:
+            try:
+                os.mkdir(MANIFESTS_FOLDER)
+            except FileExistsError:
+                pass
+            except PermissionError:
+                print(f"Permission denied: Unable to create '{MANIFESTS_FOLDER}'.")
+            except Exception as e:
+                print(f"An error occurred: {e}")
 
     def __exec_command(self, cmd):
         cmd = self.Commands.base_command.format(
@@ -50,20 +89,31 @@ class DockerProcessor:
         result = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
         return [line.decode('utf-8').strip() for line in result.stdout]
 
+    def __debug_write_manifest_info(self, image_name, prefix, lines):
+        with open(f'{MANIFESTS_FOLDER}/{image_name.replace("/", "_")}_{prefix}.txt', 'w') as f:
+            f.writelines(f'Container id = {self.container_id}\n')
+            f.writelines(f'Image = {image_name}\n')
+            for line in lines:
+                f.writelines(line + '\n')
+
     def _get_images(self):
         return self.__exec_command(self.Commands.get_images)
 
     def _get_local_docker_image_digest(self, image_name):
         version = ''
         digest = ''
+
         manifest_res = self.__exec_command(self.Commands.docker_inspect.format(image_name=image_name))
+        if DEBUG_MODE:
+            self.__debug_write_manifest_info(image_name, 'current_local', manifest_res)
         manifests_json = json.loads(''.join(manifest_res))
+
         for manifest_json in manifests_json:
             if manifest_json.get('Architecture') == DOCKER_ARCHITECTURE:
                 repo_digest = manifest_json.get('RepoDigests')
                 if len(repo_digest) > 0:
                     digest = repo_digest[0].split('@')[-1]
-                version = manifest_json.get('Config', {}).get('Labels', {}).get('org.opencontainers.image.version', '-')
+                version = dict_deep_get(manifest_json, ['Config', 'Labels', 'org.opencontainers.image.version']) or '-'
         return {
             'current_local': {
                 'digest': digest,
@@ -79,14 +129,15 @@ class DockerProcessor:
 
         # get current remote info
         manifest_res = self.__exec_command(self.Commands.docker_buildx_inspect.format(image_name=image_name))
+        if DEBUG_MODE:
+            self.__debug_write_manifest_info(image_name, 'remote_current', manifest_res)
         manifest_json = json.loads(''.join(manifest_res))
+
         response['current_remote'] = {
-            'digest': manifest_json.get('manifest', {}).get('digest', '-'),
-            'version': manifest_json.get('image', {})
-            .get(f'{DOCKER_OS}/{DOCKER_ARCHITECTURE}', {})
-            .get('config', {})
-            .get('Labels', {})
-            .get('org.opencontainers.image.version', '-')
+            'digest': dict_deep_get(manifest_json, ['manifest', 'digest']) or '-',
+            'version': dict_deep_get(manifest_json, [
+                'image', f'{DOCKER_OS}/{DOCKER_ARCHITECTURE}', 'config', 'Labels', 'org.opencontainers.image.version'
+            ]) or '-',
         }
 
         if tag == 'latest':
@@ -96,14 +147,15 @@ class DockerProcessor:
             latest_manifest_res = self.__exec_command(
                 self.Commands.docker_buildx_inspect.format(image_name=f'{image_name_without_tag}:latest')
             )
+            if DEBUG_MODE:
+                self.__debug_write_manifest_info(image_name, 'remote_latest', latest_manifest_res)
             latest_manifest_json = json.loads(''.join(latest_manifest_res))
+
             response['latest_remote'] = {
-                'digest': latest_manifest_json.get('manifest', {}).get('digest', '-'),
-                'version': latest_manifest_json.get('image', {})
-                .get(f'{DOCKER_OS}/{DOCKER_ARCHITECTURE}', {})
-                .get('config', {})
-                .get('Labels', {})
-                .get('org.opencontainers.image.version', '-')
+                'digest': dict_deep_get(latest_manifest_json, ['manifest', 'digest']) or '-',
+                'version': dict_deep_get(latest_manifest_json, [
+                    'image', f'{DOCKER_OS}/{DOCKER_ARCHITECTURE}', 'config', 'Labels', 'org.opencontainers.image.version'
+                ]) or '-',
             }
         return response
 
@@ -111,11 +163,13 @@ class DockerProcessor:
         images = self._get_images()
         images_updates_info = {}
         for image_name in images:
+
             print(f'[{self.container_id}] {image_name}')
             local_repo_digest_info = self._get_local_docker_image_digest(image_name)
             print('local_repo_digest = %s' % local_repo_digest_info)
             remote_repo_digest_info = self._get_remote_docker_image_digest(image_name)
             print('remote_repo_digest = %s' % remote_repo_digest_info)
+
             images_updates_info[image_name] = {
                 'type': self.type,
                 'local_current_digest': local_repo_digest_info['current_local']['digest'],
@@ -263,3 +317,4 @@ res = monitoring.process()
 print('result = %s' % res)
 influx_sender = InfluxDBSender()
 influx_sender.send(res)
+
