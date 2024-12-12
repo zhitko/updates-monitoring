@@ -87,8 +87,6 @@ def write_json(data, file_path):
 
 
 def read_json(file_path, default = None):
-    print(file_path)
-    print(default)
     if not default:
         default = {}
     if not is_file_exists(file_path):
