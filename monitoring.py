@@ -421,8 +421,8 @@ class Terminal:
                                 self.KEY_DESC: '',
                             },
                             self.COMMAND_BACK: {
-                                self.KEY_EXEC: self.command_menu,
-                                self.KEY_DESC: 'Back to main menu',
+                                self.KEY_EXEC: self.command_settings,
+                                self.KEY_DESC: 'Back',
                             },
                         },
                     },
@@ -432,11 +432,7 @@ class Terminal:
                     },
                     self.COMMAND_BACK: {
                         self.KEY_EXEC: self.command_menu,
-                        self.KEY_DESC: 'Back to main menu',
-                    },
-                    self.COMMAND_EXIT: {
-                        self.KEY_EXEC: exit,
-                        self.KEY_DESC: 'Exit to terminal',
+                        self.KEY_DESC: 'Back',
                     },
                 },
             },
@@ -472,9 +468,9 @@ class Terminal:
         print('Select action...')
         selected_command_key = None
         if index >= len(commands.keys()):
-            index = len(commands.keys()) - 1
-        if index < 0:
             index = 0
+        if index < 0:
+            index = len(commands.keys()) - 1
         for idx, command in enumerate(commands.keys()):
             if index == idx:
                 selector = '[*]'
