@@ -371,6 +371,11 @@ class Terminal:
     COMMAND_PROC = 'process'
     COMMAND_SETTINGS = 'settings'
     COMMAND_CONFIG = 'update-config'
+    COMMAND_CONFIG_INFLUX_HOST = 'INFLUX_HOST'
+    COMMAND_CONFIG_INFLUX_PORT = 'INFLUX_PORT'
+    COMMAND_CONFIG_INFLUX_ORG = 'INFLUX_ORG'
+    COMMAND_CONFIG_INFLUX_BUCKET = 'INFLUX_BUCKET'
+    COMMAND_CONFIG_INFLUX_TOKEN = 'INFLUX_TOKEN'
     COMMAND_MENU = 'menu'
     COMMAND_EXIT = 'exit'
     COMMAND_BACK = 'back'
@@ -395,24 +400,24 @@ class Terminal:
                         self.KEY_EXEC: self.command_update_config,
                         self.KEY_DESC: 'Update config',
                         self.KEY_SUBM: {
-                            'INFLUX_HOST': {
-                                self.KEY_EXEC: lambda: self.command_update_config_item('INFLUX_HOST'),
+                            self.COMMAND_CONFIG_INFLUX_HOST: {
+                                self.KEY_EXEC: lambda: self.command_update_config_item(self.COMMAND_CONFIG_INFLUX_HOST),
                                 self.KEY_DESC: '',
                             },
-                            'INFLUX_PORT': {
-                                self.KEY_EXEC: lambda: self.command_update_config_item('INFLUX_PORT'),
+                            self.COMMAND_CONFIG_INFLUX_PORT: {
+                                self.KEY_EXEC: lambda: self.command_update_config_item(self.COMMAND_CONFIG_INFLUX_PORT),
                                 self.KEY_DESC: '',
                             },
-                            'INFLUX_ORG': {
-                                self.KEY_EXEC: lambda: self.command_update_config_item('INFLUX_ORG'),
+                            self.COMMAND_CONFIG_INFLUX_ORG: {
+                                self.KEY_EXEC: lambda: self.command_update_config_item(self.COMMAND_CONFIG_INFLUX_ORG),
                                 self.KEY_DESC: '',
                             },
-                            'INFLUX_BUCKET': {
-                                self.KEY_EXEC: lambda: self.command_update_config_item('INFLUX_BUCKET'),
+                            self.COMMAND_CONFIG_INFLUX_BUCKET: {
+                                self.KEY_EXEC: lambda: self.command_update_config_item(self.COMMAND_CONFIG_INFLUX_BUCKET),
                                 self.KEY_DESC: '',
                             },
-                            'INFLUX_TOKEN': {
-                                self.KEY_EXEC: lambda: self.command_update_config_item('INFLUX_TOKEN'),
+                            self.COMMAND_CONFIG_INFLUX_TOKEN: {
+                                self.KEY_EXEC: lambda: self.command_update_config_item(self.COMMAND_CONFIG_INFLUX_TOKEN),
                                 self.KEY_DESC: '',
                             },
                             self.COMMAND_BACK: {
@@ -508,8 +513,8 @@ class Terminal:
 
     def command_update_config_item(self, item):
         self._clear_console()
-        print(f'Current value: {config.get(item)}')
-        config.set(item, input("Enter Influx host: "))
+        print(f'Current value {item}: {config.get(item)}')
+        config.set(item, input('Enter new value: '))
         save_config()
         self.command_update_config()
 
