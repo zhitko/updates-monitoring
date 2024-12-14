@@ -34,14 +34,8 @@ class Config:
     # -------------------------------------------------------------------------------------
 
     container_processors_mapping = {
-        '102': ['docker'],
-        # '103': ['docker'],
-        '104': ['docker'],
-        '105': ['docker'],
-        '106': ['docker'],
-        # '108': ['docker'],
-        '109': ['docker'],
-        '112': ['docker'],
+        '101': ['docker'],
+        '122': ['docker'],
     }
 
     def __init__(self, **entries):
@@ -91,6 +85,7 @@ def is_file_exists(file_path):
 
 
 def write_json(data, file_path):
+    print(data)
     json_object = json.dumps(data, indent=4, ensure_ascii=False)
     with open(file_path, 'w') as outfile:
         outfile.write(json_object)
@@ -241,6 +236,8 @@ processors_mapping = {
 class PVEMonitoring:
     class Commands:
         get_containers_ids = "pct list | awk '{if(NR>1) print $1}'"
+        get_container_name = "pct config {container_id} | awk '/hostname/ {{print $2}}'"
+        get_container_status = "pct status {container_id} | awk '/status/ {{print $2}}'"
         check_container_is_template = 'pct config {container_id} | grep -q "template:" && echo "true" || echo "false"'
 
     def __init__(self):
@@ -257,6 +254,15 @@ class PVEMonitoring:
         else:
             raise
         return is_template
+
+    def get_containers(self):
+        containers_ids = self.__exec_command(self.Commands.get_containers_ids)
+        containers = [{
+            'id': cid,
+            'name': self.__exec_command(self.Commands.get_container_name.format(container_id=cid))[0],
+            'state': self.__exec_command(self.Commands.get_container_status.format(container_id=cid))[0],
+        } for cid in containers_ids if self._check_container_is_template(cid) != 'true']
+        return containers
 
     def _get_containers_ids(self, exclude_templates=True):
         print('Get containers ids...')
@@ -376,6 +382,13 @@ class Terminal:
     COMMAND_CONFIG_INFLUX_ORG = 'INFLUX_ORG'
     COMMAND_CONFIG_INFLUX_BUCKET = 'INFLUX_BUCKET'
     COMMAND_CONFIG_INFLUX_TOKEN = 'INFLUX_TOKEN'
+    COMMAND_CONFIG_LXC = 'update-lxc'
+    COMMAND_CONFIG_LXC_ID = 'id'
+    COMMAND_CONFIG_LXC_NAME = 'name'
+    COMMAND_CONFIG_LXC_STATUS = 'status'
+    COMMAND_CONFIG_LXC_STATUS_MISSING = 'Missing'
+    COMMAND_CONFIG_LXC_PROCESSORS = 'processors'
+    COMMAND_CONFIG_DELETE_COMMAND = 'delete'
     COMMAND_MENU = 'menu'
     COMMAND_EXIT = 'exit'
     COMMAND_BACK = 'back'
@@ -393,7 +406,7 @@ class Terminal:
                 self.KEY_DESC: 'Run monitoring round',
             },
             self.COMMAND_SETTINGS: {
-                self.KEY_EXEC: self.command_settings,
+                self.KEY_EXEC: self.command_show_submenu,
                 self.KEY_DESC: 'Settings',
                 self.KEY_SUBM: {
                     self.COMMAND_CONFIG: {
@@ -401,34 +414,39 @@ class Terminal:
                         self.KEY_DESC: 'Update config',
                         self.KEY_SUBM: {
                             self.COMMAND_CONFIG_INFLUX_HOST: {
-                                self.KEY_EXEC: lambda: self.command_update_config_item(self.COMMAND_CONFIG_INFLUX_HOST),
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, self.COMMAND_CONFIG_INFLUX_HOST),
                                 self.KEY_DESC: '',
                             },
                             self.COMMAND_CONFIG_INFLUX_PORT: {
-                                self.KEY_EXEC: lambda: self.command_update_config_item(self.COMMAND_CONFIG_INFLUX_PORT),
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, self.COMMAND_CONFIG_INFLUX_PORT),
                                 self.KEY_DESC: '',
                             },
                             self.COMMAND_CONFIG_INFLUX_ORG: {
-                                self.KEY_EXEC: lambda: self.command_update_config_item(self.COMMAND_CONFIG_INFLUX_ORG),
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, self.COMMAND_CONFIG_INFLUX_ORG),
                                 self.KEY_DESC: '',
                             },
                             self.COMMAND_CONFIG_INFLUX_BUCKET: {
-                                self.KEY_EXEC: lambda: self.command_update_config_item(self.COMMAND_CONFIG_INFLUX_BUCKET),
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, self.COMMAND_CONFIG_INFLUX_BUCKET),
                                 self.KEY_DESC: '',
                             },
                             self.COMMAND_CONFIG_INFLUX_TOKEN: {
-                                self.KEY_EXEC: lambda: self.command_update_config_item(self.COMMAND_CONFIG_INFLUX_TOKEN),
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, self.COMMAND_CONFIG_INFLUX_TOKEN),
                                 self.KEY_DESC: '',
                             },
                             self.COMMAND_BACK: {
-                                self.KEY_EXEC: self.command_settings,
+                                self.KEY_EXEC: self.command_menu,
                                 self.KEY_DESC: 'Back',
                             },
                         },
                     },
+                    self.COMMAND_CONFIG_LXC: {
+                        self.KEY_EXEC: self.command_update_containers,
+                        self.KEY_DESC: 'Update containers mapping',
+                        self.KEY_SUBM: None,
+                    },
                     'update-crone': {
-                        self.KEY_EXEC: exit,
-                        self.KEY_DESC: 'Update cron',
+                        self.KEY_EXEC: self.command_exit,
+                        self.KEY_DESC: '(TODO) Update cron',
                     },
                     self.COMMAND_BACK: {
                         self.KEY_EXEC: self.command_menu,
@@ -437,7 +455,7 @@ class Terminal:
                 },
             },
             self.COMMAND_EXIT: {
-                self.KEY_EXEC: exit,
+                self.KEY_EXEC: self.command_exit,
                 self.KEY_DESC: 'Exit to terminal',
             },
         }
@@ -445,10 +463,10 @@ class Terminal:
             self.current_command = self.commands[self.action]
             self._run_command(self.current_command)
         else:
-            self.command_menu()
+            self.command_menu(None)
 
     def _run_command(self, command):
-        command[self.KEY_EXEC]()
+        command[self.KEY_EXEC](command)
 
     def _clear_console(self):
         os.system('cls' if os.name=='nt' else 'clear')
@@ -463,9 +481,9 @@ class Terminal:
         finally:
             termios.tcsetattr(fd, termios.TCSAFLUSH, orig)
 
-    def _show_menu(self, commands, index):
+    def _show_menu(self, commands, index, message):
         self._clear_console()
-        print('Select action...')
+        print(message)
         selected_command_key = None
         if index >= len(commands.keys()):
             index = 0
@@ -473,11 +491,10 @@ class Terminal:
             index = len(commands.keys()) - 1
         for idx, command in enumerate(commands.keys()):
             if index == idx:
-                selector = '[*]'
                 selected_command_key = command
+                print(f"\033[96m[*] {command} {commands[command][self.KEY_DESC]:>{50 - len(command)}}\033[00m")
             else:
-                selector = '[ ]'
-            print(f"{selector} {command} {commands[command][self.KEY_DESC]:>{30 - len(command)}}")
+                print(f"[ ] {command} {commands[command][self.KEY_DESC]:>{50 - len(command)}}")
         c = self._getch()
         # Up arrow key
         if c == 'A':
@@ -490,45 +507,144 @@ class Terminal:
             return (index, commands[selected_command_key])
         return (index, None)
 
-    def command_settings(self):
+    def command_update_containers(self, command):
+        if command[self.KEY_SUBM] is None:
+            print('Updating PVE containers list. Please wait...')
+
+            # Get containers from config
+            containers_from_config = config.container_processors_mapping;
+
+            # Get containers from PVE
+            monitoring = PVEMonitoring()
+            containers_from_pve = monitoring.get_containers()
+
+            commands = {}
+            # Add containers from config
+            for key in containers_from_config.keys():
+                commands[key] = {
+                    self.COMMAND_CONFIG_LXC_PROCESSORS: containers_from_config[key],
+                    self.COMMAND_CONFIG_LXC_NAME: '',
+                    self.COMMAND_CONFIG_LXC_STATUS: self.COMMAND_CONFIG_LXC_STATUS_MISSING,
+                    self.COMMAND_CONFIG_LXC_ID: key,
+                }
+
+            # Upsert containers from PVE
+            for container in containers_from_pve:
+                container_id = container['id']
+                container_name = container['name']
+                container_state = container['state']
+                c = commands.get(container_id, {
+                    self.COMMAND_CONFIG_LXC_PROCESSORS: [],
+                    self.COMMAND_CONFIG_LXC_NAME: container_name,
+                    self.COMMAND_CONFIG_LXC_STATUS: container_state,
+                    self.COMMAND_CONFIG_LXC_ID: container_id,
+                })
+                c[self.COMMAND_CONFIG_LXC_NAME] = container_name
+                c[self.COMMAND_CONFIG_LXC_STATUS] = container_state
+                commands[container_id] = c
+
+            commands[self.COMMAND_BACK] = {
+                self.KEY_EXEC: self.command_menu,
+                self.KEY_DESC: 'Back',
+            }
+
+            command[self.KEY_SUBM] = commands
+
+        for key in command[self.KEY_SUBM].keys():
+            c = command[self.KEY_SUBM][key]
+            if self.COMMAND_CONFIG_LXC_PROCESSORS in c.keys():
+                procs = str(c[self.COMMAND_CONFIG_LXC_PROCESSORS])
+                name = c[self.COMMAND_CONFIG_LXC_NAME]
+                state = c[self.COMMAND_CONFIG_LXC_STATUS]
+                c[self.KEY_DESC] = f'{name} ({state}) {procs}'
+                c[self.KEY_EXEC] = self.command_container_select_processors
+        
+        self.command_menu(command, command[self.KEY_SUBM], 'Select container to select processors')
+
+    def command_container_select_processors(self, command):
+        container_id = command[self.COMMAND_CONFIG_LXC_ID]
+        commands = {}
+        for processor in processors_mapping.keys():
+            is_enabled = ' '
+            if processor in command[self.COMMAND_CONFIG_LXC_PROCESSORS]:
+                is_enabled = 'V'
+            commands[processor] = {
+                self.KEY_EXEC: lambda x: self.command_container_processor_action(command, container_id, processor),
+                self.KEY_DESC: f'[{is_enabled}] processor',
+            }
+        commands[self.COMMAND_BACK] = {
+            self.KEY_EXEC: lambda x: self.command_update_containers(self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM][self.COMMAND_CONFIG_LXC]),
+            self.KEY_DESC: 'Back',
+        }
+        if command[self.COMMAND_CONFIG_LXC_STATUS] == self.COMMAND_CONFIG_LXC_STATUS_MISSING:
+            commands[self.COMMAND_CONFIG_DELETE_COMMAND] = {
+                self.KEY_EXEC: lambda x: self.command_container_delete(command, container_id),
+                self.KEY_DESC: f'Delete {container_id}',
+            }
+        self.command_menu(command, commands, 'Select processors')
+
+    def command_container_processor_action(self, command, container_id, processor):
+        if container_id not in config.container_processors_mapping.keys():
+            config.container_processors_mapping[container_id] = []
+        if processor in config.container_processors_mapping[container_id]:
+            config.container_processors_mapping[container_id].remove(processor)
+        else:
+            config.container_processors_mapping[container_id].append(processor)
+        command[self.COMMAND_CONFIG_LXC_PROCESSORS] = config.container_processors_mapping[container_id]
+        config.set('container_processors_mapping', config.container_processors_mapping)
+        save_config()
+        self.command_container_select_processors(command)
+
+    def command_container_delete(self, command, container_id):
+        self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM][self.COMMAND_CONFIG_LXC][self.KEY_SUBM].pop(container_id, None)
+        config.container_processors_mapping.pop(container_id, None)
+        config.set('container_processors_mapping', config.container_processors_mapping)
+        save_config()
+        self.command_update_containers(self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM][self.COMMAND_CONFIG_LXC])
+
+    def command_show_submenu(self, command):
         sub_action = (self.args+[None])[0]
         if not sub_action:
-            self.command_menu(self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM])
-        elif sub_action not in self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM].keys():
+            self.command_menu(command, command[self.KEY_SUBM])
+        elif sub_action not in command[self.KEY_SUBM].keys():
             print(f'Error: wrong action {sub_action}')
         else:
-            self._run_command(self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM][sub_action])
+            self._run_command(command[self.KEY_SUBM][sub_action])
 
-    def command_update_config(self):
-        items = self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM][self.COMMAND_CONFIG][self.KEY_SUBM]
+    def command_update_config(self, command):
+        items = command[self.KEY_SUBM]
         for item in items:
             value = config.get(item)
             if value:
                 items[item][self.KEY_DESC] = value
-        self.command_menu(items)
+        self.command_menu(command, items, 'Select value to change')
 
-    def command_update_config_item(self, item):
+    def command_exit(self, command):
+        exit(0)
+
+    def command_update_config_item(self, command, item):
         self._clear_console()
         print(f'Current value {item}: {config.get(item)}')
         config.set(item, input('Enter new value: '))
         save_config()
-        self.command_update_config()
+        self.command_update_config(self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM][self.COMMAND_CONFIG])
 
-    def command_menu(self, commands = None):
+    def command_menu(self, command, commands = None, message='Select action...'):
         if not commands:
             commands = self.commands
         index = 0
         selected_command = None
         while selected_command is None:
-            (index, selected_command) = self._show_menu(commands, index)
+            (index, selected_command) = self._show_menu(commands, index, message)
         self._run_command(selected_command)
 
-    def command_help(self):
+    def command_help(self, command):
         print('Commands:')
         for command in self.commands.keys():
             print(f"\t{command}\t{self.commands[command][self.KEY_DESC]}")
 
-    def command_process(self):
+    def command_process(self, command):
+        # TODO: add process arguments for DEBUG and CACHE
         monitoring = PVEMonitoring()
         res = monitoring.process()
         # res = {'105': {'lscr.io/linuxserver/transmission:latest': {'type': 'docker', 'local_current_digest': 'sha256:25692848ea167ef57f3914a55393d48b7a96c201a0dcc2002e316bcd146ddd8c', 'local_current_version': '4.0.6-r0-ls272', 'remote_current_digest': 'sha256:25692848ea167ef57f3914a55393d48b7a96c201a0dcc2002e316bcd146ddd8c', 'remote_current_version': '4.0.6-r0-ls272', 'remote_latest_digest': 'sha256:25692848ea167ef57f3914a55393d48b7a96c201a0dcc2002e316bcd146ddd8c', 'remote_latest_version': '4.0.6-r0-ls272'}, 'portainer/agent:2.21.3': {'type': 'docker', 'local_current_digest': 'sha256:0298f083ae43930ae3cbc9cacafa89be6d5a3e2ab0aff5312a84712916e8d234', 'local_current_version': '-', 'remote_current_digest': 'sha256:0298f083ae43930ae3cbc9cacafa89be6d5a3e2ab0aff5312a84712916e8d234', 'remote_current_version': '-', 'remote_latest_digest': 'sha256:b87309640050c93433244b41513de186f9456e1024bfc9541bc9a8341c1b0938', 'remote_latest_version': '-'}}}
