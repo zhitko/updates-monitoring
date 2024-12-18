@@ -26,7 +26,7 @@ class Config:
     # -------------------------------------------------------------------------------------
     # Influx config
     # -------------------------------------------------------------------------------------
-    INFLUX_HOST = ''
+    INFLUX_HOST = 'http://127.0.0.1'
     INFLUX_PORT = '8086'
     INFLUX_ORG = 'home'
     INFLUX_BUCKET = 'pve_updates'
@@ -183,7 +183,10 @@ class DockerProcessor:
         manifest_res = self.__exec_command(self.Commands.docker_buildx_inspect.format(image_name=image_name))
         if config.DEBUG_MODE:
             self.__debug_write_manifest_info(image_name, 'remote_current', manifest_res)
-        manifest_json = json.loads(''.join(manifest_res))
+        try:
+            manifest_json = json.loads(''.join(manifest_res))
+        except:
+            manifest_json = json.loads('{}')
 
         response['current_remote'] = {
             'digest': dict_deep_get(manifest_json, ['manifest', 'digest']) or '-',
@@ -201,7 +204,10 @@ class DockerProcessor:
             )
             if config.DEBUG_MODE:
                 self.__debug_write_manifest_info(image_name, 'remote_latest', latest_manifest_res)
-            latest_manifest_json = json.loads(''.join(latest_manifest_res))
+            try:
+                latest_manifest_json = json.loads(''.join(latest_manifest_res))
+            except:
+                latest_manifest_json = json.loads('{}')
 
             response['latest_remote'] = {
                 'digest': dict_deep_get(latest_manifest_json, ['manifest', 'digest']) or '-',
@@ -330,6 +336,11 @@ class InfluxDBSender:
         self.bucket = config.INFLUX_BUCKET
         self.token = config.INFLUX_TOKEN
 
+    def _escape(self, value):
+        if len(value) == 0:
+            return '-'
+        return value.replace(' ', '\ ').replace('=', '\=').replace(',', '\,')
+
     def _prepare_data(self, monitoring_info):
         data_raws = []
         data_raw_template = 'updates,container_id={container_id},instance_type={instance_type},instance_name={instance_name},local_current_digest={local_current_digest},local_current_version={local_current_version},remote_current_digest={remote_current_digest},remote_current_version={remote_current_version},remote_latest_digest={remote_latest_digest},remote_latest_version={remote_latest_version} value=1 {current_unix_time}'
@@ -337,15 +348,15 @@ class InfluxDBSender:
             for instance_name, instance_data in container_data.items():
                 data_raws.append(
                     data_raw_template.format(
-                        container_id=container_id,
-                        instance_type=instance_data.get('type'),
-                        instance_name=instance_name,
-                        local_current_digest=instance_data.get('local_current_digest'),
-                        local_current_version=instance_data.get('local_current_version'),
-                        remote_current_digest=instance_data.get('remote_current_digest'),
-                        remote_current_version=instance_data.get('remote_current_version'),
-                        remote_latest_digest=instance_data.get('remote_latest_digest'),
-                        remote_latest_version=instance_data.get('remote_latest_version'),
+                        container_id=self._escape(container_id),
+                        instance_type=self._escape(instance_data.get('type')),
+                        instance_name=self._escape(instance_name),
+                        local_current_digest=self._escape(instance_data.get('local_current_digest')),
+                        local_current_version=self._escape(instance_data.get('local_current_version')),
+                        remote_current_digest=self._escape(instance_data.get('remote_current_digest')),
+                        remote_current_version=self._escape(instance_data.get('remote_current_version')),
+                        remote_latest_digest=self._escape(instance_data.get('remote_latest_digest')),
+                        remote_latest_version=self._escape(instance_data.get('remote_latest_version')),
                         current_unix_time=time.time_ns()
                     )
                 )
