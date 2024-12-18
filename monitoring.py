@@ -41,15 +41,21 @@ class Config:
     def __init__(self, **entries):
         self.__dict__.update(entries)
 
-    def get(self, item):
-        if item in self.__dict__.keys():
-            return self.__dict__[item]
-        elif item in Config.__dict__.keys():
-            return Config.__dict__[item]
-        return None
+    def convert(self, value, type=str):
+        if type is bool:
+            return True if str(value).lower() in ['true', '1', 't', 'y', 'yes', 'yeah', 'yup', 'certainly', 'uh-huh'] else False
+        return type(value)
 
-    def set(self, item, value):
-        self.__dict__.update({item: value})
+    def get(self, item, type=str):
+        value = None
+        if item in self.__dict__.keys():
+            value = self.__dict__[item]
+        elif item in Config.__dict__.keys():
+            value = Config.__dict__[item]
+        return self.convert(value, type) if value is not None else None
+
+    def set(self, item, value, type=str):
+        self.__dict__.update({item: self.convert(value, type)})
 
 config = Config()
 
@@ -372,16 +378,13 @@ class Terminal:
     KEY_EXEC = 'execute'
     KEY_DESC = 'description'
     KEY_SUBM = 'commands'
+    KEY_TYPE = 'type'
+    KEY_PARENT = 'parent'
 
     COMMAND_HELP = 'help'
     COMMAND_PROC = 'process'
     COMMAND_SETTINGS = 'settings'
-    COMMAND_CONFIG = 'update-config'
-    COMMAND_CONFIG_INFLUX_HOST = 'INFLUX_HOST'
-    COMMAND_CONFIG_INFLUX_PORT = 'INFLUX_PORT'
-    COMMAND_CONFIG_INFLUX_ORG = 'INFLUX_ORG'
-    COMMAND_CONFIG_INFLUX_BUCKET = 'INFLUX_BUCKET'
-    COMMAND_CONFIG_INFLUX_TOKEN = 'INFLUX_TOKEN'
+    COMMAND_CONFIG = 'update-influx'
     COMMAND_CONFIG_LXC = 'update-lxc'
     COMMAND_CONFIG_LXC_ID = 'id'
     COMMAND_CONFIG_LXC_NAME = 'name'
@@ -411,30 +414,30 @@ class Terminal:
                 self.KEY_SUBM: {
                     self.COMMAND_CONFIG: {
                         self.KEY_EXEC: self.command_update_config,
-                        self.KEY_DESC: 'Update config',
+                        self.KEY_DESC: 'Update INFLUX config',
                         self.KEY_SUBM: {
-                            self.COMMAND_CONFIG_INFLUX_HOST: {
-                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, self.COMMAND_CONFIG_INFLUX_HOST),
+                            'INFLUX_HOST': {
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, 'INFLUX_HOST'),
                                 self.KEY_DESC: '',
                             },
-                            self.COMMAND_CONFIG_INFLUX_PORT: {
-                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, self.COMMAND_CONFIG_INFLUX_PORT),
+                            'INFLUX_PORT': {
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, 'INFLUX_PORT'),
                                 self.KEY_DESC: '',
                             },
-                            self.COMMAND_CONFIG_INFLUX_ORG: {
-                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, self.COMMAND_CONFIG_INFLUX_ORG),
+                            'INFLUX_ORG': {
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, 'INFLUX_ORG'),
                                 self.KEY_DESC: '',
                             },
-                            self.COMMAND_CONFIG_INFLUX_BUCKET: {
-                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, self.COMMAND_CONFIG_INFLUX_BUCKET),
+                            'INFLUX_BUCKET': {
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, 'INFLUX_BUCKET'),
                                 self.KEY_DESC: '',
                             },
-                            self.COMMAND_CONFIG_INFLUX_TOKEN: {
-                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, self.COMMAND_CONFIG_INFLUX_TOKEN),
+                            'INFLUX_TOKEN': {
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, 'INFLUX_TOKEN'),
                                 self.KEY_DESC: '',
                             },
                             self.COMMAND_BACK: {
-                                self.KEY_EXEC: self.command_menu,
+                                self.KEY_EXEC: self.command_back,
                                 self.KEY_DESC: 'Back',
                             },
                         },
@@ -442,14 +445,57 @@ class Terminal:
                     self.COMMAND_CONFIG_LXC: {
                         self.KEY_EXEC: self.command_update_containers,
                         self.KEY_DESC: 'Update containers mapping',
-                        self.KEY_SUBM: None,
                     },
                     'update-crone': {
                         self.KEY_EXEC: self.command_exit,
                         self.KEY_DESC: '(TODO) Update cron',
                     },
+                    'update-general': {
+                        self.KEY_EXEC: self.command_update_config,
+                        self.KEY_DESC: 'Update General config',
+                        self.KEY_SUBM: {
+                            'CONFIG_FILE': {
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, 'CONFIG_FILE'),
+                                self.KEY_DESC: '',
+                            },
+                            'DEBUG_MODE': {
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, 'DEBUG_MODE'),
+                                self.KEY_DESC: '',
+                                self.KEY_TYPE: bool,
+                            },
+                            'MANIFESTS_FOLDER': {
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, 'MANIFESTS_FOLDER'),
+                                self.KEY_DESC: '',
+                            },
+                            'USE_CACHE': {
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, 'USE_CACHE'),
+                                self.KEY_DESC: '',
+                                self.KEY_TYPE: bool,
+                            },
+                            self.COMMAND_BACK: {
+                                self.KEY_EXEC: self.command_back,
+                                self.KEY_DESC: 'Back',
+                            },
+                        },
+                    },
+                    'update-docker': {
+                        self.KEY_EXEC: self.command_update_config,
+                        self.KEY_DESC: 'Update Docker Processor config',
+                        self.KEY_SUBM: {
+                            'DOCKER_ARCHITECTURE': {
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, 'DOCKER_ARCHITECTURE'),
+                            },
+                            'DOCKER_OS': {
+                                self.KEY_EXEC: lambda c: self.command_update_config_item(c, 'DOCKER_OS'),
+                            },
+                            self.COMMAND_BACK: {
+                                self.KEY_EXEC: self.command_back,
+                                self.KEY_DESC: 'Back',
+                            },
+                        },
+                    },
                     self.COMMAND_BACK: {
-                        self.KEY_EXEC: self.command_menu,
+                        self.KEY_EXEC: self.command_back,
                         self.KEY_DESC: 'Back',
                     },
                 },
@@ -459,6 +505,13 @@ class Terminal:
                 self.KEY_DESC: 'Exit to terminal',
             },
         }
+        def set_parent_command(parent_command, commands):
+            for key in commands.keys():
+                command = commands[key]
+                command[self.KEY_PARENT] = parent_command
+                if self.KEY_SUBM in command.keys():
+                    set_parent_command(command, command[self.KEY_SUBM])
+        set_parent_command(None, self.commands)
         if self.action:
             self.current_command = self.commands[self.action]
             self._run_command(self.current_command)
@@ -508,7 +561,7 @@ class Terminal:
         return (index, None)
 
     def command_update_containers(self, command):
-        if command[self.KEY_SUBM] is None:
+        if self.KEY_SUBM not in command.keys():
             print('Updating PVE containers list. Please wait...')
 
             # Get containers from config
@@ -591,14 +644,14 @@ class Terminal:
         else:
             config.container_processors_mapping[container_id].append(processor)
         command[self.COMMAND_CONFIG_LXC_PROCESSORS] = config.container_processors_mapping[container_id]
-        config.set('container_processors_mapping', config.container_processors_mapping)
+        config.set('container_processors_mapping', config.container_processors_mapping, dict)
         save_config()
         self.command_container_select_processors(command)
 
     def command_container_delete(self, command, container_id):
         self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM][self.COMMAND_CONFIG_LXC][self.KEY_SUBM].pop(container_id, None)
         config.container_processors_mapping.pop(container_id, None)
-        config.set('container_processors_mapping', config.container_processors_mapping)
+        config.set('container_processors_mapping', config.container_processors_mapping, dict)
         save_config()
         self.command_update_containers(self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM][self.COMMAND_CONFIG_LXC])
 
@@ -609,25 +662,37 @@ class Terminal:
         elif sub_action not in command[self.KEY_SUBM].keys():
             print(f'Error: wrong action {sub_action}')
         else:
-            self._run_command(command[self.KEY_SUBM][sub_action])
+            sub_command = command[self.KEY_SUBM][sub_action]
+            self._run_command(sub_command)
 
     def command_update_config(self, command):
         items = command[self.KEY_SUBM]
         for item in items:
-            value = config.get(item)
-            if value:
-                items[item][self.KEY_DESC] = value
+            type = items[item].get(self.KEY_TYPE, str)
+            value = config.get(item, type)
+            print(item, type, value)
+            if value is not None:
+                items[item][self.KEY_DESC] = str(value)
         self.command_menu(command, items, 'Select value to change')
+
+    def command_back(self, command):
+        parent_command_1 = command[self.KEY_PARENT]
+        if parent_command_1 is None: self.command_menu(None)
+        parent_command_2 = parent_command_1[self.KEY_PARENT]
+        if parent_command_2 is None: self.command_menu(None)
+        self._run_command(parent_command_2)
 
     def command_exit(self, command):
         exit(0)
 
     def command_update_config_item(self, command, item):
+        type = command.get(self.KEY_TYPE, str)
         self._clear_console()
-        print(f'Current value {item}: {config.get(item)}')
-        config.set(item, input('Enter new value: '))
+        print(f'Current value {item}: {type(config.get(item, type))}')
+        value = input('Enter new value: ')
+        config.set(item, value, type)
         save_config()
-        self.command_update_config(self.commands[self.COMMAND_SETTINGS][self.KEY_SUBM][self.COMMAND_CONFIG])
+        self._run_command(command[self.KEY_PARENT])
 
     def command_menu(self, command, commands = None, message='Select action...'):
         if not commands:
