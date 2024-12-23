@@ -466,7 +466,7 @@ class Terminal:
             self.kwargs = kwargs
 
         def _get_screen_width(self):
-            return 64
+            return 96
 
         def get_parent(self):
             return self.parent if self.parent is not None else self
@@ -575,10 +575,13 @@ class Terminal:
 
         def _print_sub_menu(self, current, command, description):
             width = self._get_screen_width()
+            line = command
+            if isinstance(description, str) and description:
+                line = f"{command} {description:.>{width - len(command)}}"
             if current:
-                self.print(f"\033[96m[*] {command} {description:>{width - len(command)}}\033[00m")
+                self.print(f"\033[96m[*] {line}\033[00m")
             else:
-                self.print(f"[ ] {command} {description:>{width - len(command)}}")
+                self.print(f"[ ] {line}")
 
         def _get_keypress(self):
             fd = sys.stdin.fileno()
@@ -607,9 +610,6 @@ class Terminal:
 
     class ActionBack(Action):
 
-        def get_description(self): 
-            return 'Back'
-
         def run(self, args):
             self.print('Args:', args)
             parent = self.get_parent()
@@ -624,6 +624,7 @@ class Terminal:
         def run(self, args):
             self.print('Args:', args)
             # TODO: add process arguments for DEBUG and CACHE
+            # TODO: add progress spinner
             monitoring = PVEMonitoring()
             res = monitoring.process()
             influx_sender = InfluxDBSender()
@@ -685,12 +686,14 @@ class Terminal:
             self.print('Args:', args)
             processor = self.get_command()
             container = self.get_parent().get_command()
-            processors = config.CONTAINER_PROCESSORS_MAPPING.get(container, [])
+            mapping = config.get('CONTAINER_PROCESSORS_MAPPING', dict)
+            processors = mapping.get(container, [])
             if processor in processors:
                 processors.remove(processor)
             else:
                 processors.append(processor)
-            config.CONTAINER_PROCESSORS_MAPPING[container] = processors
+            mapping[container] = processors
+            config.set('CONTAINER_PROCESSORS_MAPPING', mapping, dict)
             save_config()
             return self.get_parent()
 
@@ -712,10 +715,10 @@ class Terminal:
             procs = self._get_by_key(Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_PROCESSORS, '')
             name = self._get_by_key(Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_NAME, '')
             state = self._get_by_key(Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_STATUS, '')
-            return f'{name} ({state}) {procs}'
+            length = round(self._get_screen_width() / 2)
+            return f'{name} ({state}){str(procs):.>{length}}'
 
-        def _get_from_config(self):
-            commands = {}
+        def _get_from_config(self, commands):
             for processor in processors_mapping.keys():
                 commands[processor] = {
                     Terminal.Action.KEY_EXEC: Terminal.ActionUpdateContainerProcessorsItemSelector,
@@ -725,15 +728,16 @@ class Terminal:
         def _get_by_key(self, key, default = None):
             values = Terminal.ActionMenu._get_by_key(self, key, default)
             if key == Terminal.ActionMenu.KEY_SUBM and values == default:
-                values = self._get_from_config()
+                values = {}
+                values[Terminal.COMMAND_BACK] = {
+                    Terminal.Action.KEY_EXEC: Terminal.ActionBack,
+                }
+                values = self._get_from_config(values)
                 state = self._get_by_key(Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_STATUS)
                 if state == Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_STATUS_MISSING:
                     values['delete'] = {
                         Terminal.Action.KEY_EXEC: Terminal.ActionUpdateContainerProcessorsItemDelete,
                     }
-                values[Terminal.COMMAND_BACK] = {
-                    Terminal.Action.KEY_EXEC: Terminal.ActionBack,
-                }
                 self.kwargs[key] = values
             return values
 
@@ -780,10 +784,9 @@ class Terminal:
                 ),
             }
 
-        def _get_from_config(self):
+        def _get_from_config(self, commands):
             containers_from_config = config.CONTAINER_PROCESSORS_MAPPING
             # Add containers from config
-            commands = {}
             for key in containers_from_config.keys():
                 self._upsert_config(commands, key, {
                     Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_PROCESSORS: containers_from_config[key],
@@ -818,12 +821,13 @@ class Terminal:
         def _get_by_key(self, key, default = None):
             values = Terminal.ActionMenu._get_by_key(self, key, default)
             if key == Terminal.ActionMenu.KEY_SUBM and values == default:
-                values = self._get_from_config()
-                values = self._update_from_pve(values)
-                values = collections.OrderedDict(sorted(values.items()))
+                values = {}
                 values[Terminal.COMMAND_BACK] = {
                     Terminal.Action.KEY_EXEC: Terminal.ActionBack,
                 }
+                values = self._get_from_config(values)
+                values = self._update_from_pve(values)
+                # values = collections.OrderedDict(sorted(values.items()))                
             return values
 
     def _init_commands(self):
@@ -841,10 +845,16 @@ class Terminal:
                     Terminal.Action.KEY_EXEC: Terminal.ActionMenu,
                     Terminal.Action.KEY_DESC: 'Settings',
                     Terminal.ActionMenu.KEY_SUBM: {
+                        Terminal.COMMAND_BACK: {
+                            Terminal.Action.KEY_EXEC: Terminal.ActionBack,
+                        },
                         'update-influx': {
                             Terminal.Action.KEY_EXEC: Terminal.ActionMenu,
                             Terminal.Action.KEY_DESC: 'Update INFLUX config',
                             Terminal.ActionMenu.KEY_SUBM: {
+                                Terminal.COMMAND_BACK: {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionBack,
+                                },
                                 'INFLUX_HOST': {
                                     Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,
                                     Terminal.Action.KEY_HELP: 'Influx host (http://ip-address)',
@@ -865,9 +875,6 @@ class Terminal:
                                     Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,
                                     Terminal.Action.KEY_HELP: 'Influx token',
                                 },
-                                Terminal.COMMAND_BACK: {
-                                    Terminal.Action.KEY_EXEC: Terminal.ActionBack,
-                                },
                             },
                         },
                         'update-lxc': {
@@ -881,6 +888,9 @@ class Terminal:
                             Terminal.Action.KEY_EXEC: Terminal.ActionMenu,
                             Terminal.Action.KEY_DESC: 'Update General config',
                             Terminal.ActionMenu.KEY_SUBM: {
+                                Terminal.COMMAND_BACK: {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionBack,
+                                },
                                 'CONFIG_FILE': {
                                     Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,
                                     Terminal.Action.KEY_HELP: 'Config file path',
@@ -899,15 +909,15 @@ class Terminal:
                                     Terminal.ActionUpdateConfig.KEY_TYPE: bool,
                                     Terminal.Action.KEY_HELP: 'Enable cache mode',
                                 },
-                                Terminal.COMMAND_BACK: {
-                                    Terminal.Action.KEY_EXEC: Terminal.ActionBack,
-                                },
                             },
                         },
                         'update-docker': {
                             Terminal.Action.KEY_EXEC: Terminal.ActionMenu,
                             Terminal.Action.KEY_DESC: 'Update Docker Processor config',
                             Terminal.ActionMenu.KEY_SUBM: {
+                                Terminal.COMMAND_BACK: {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionBack,
+                                },
                                 'DOCKER_ARCHITECTURE': {
                                     Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,
                                     Terminal.Action.KEY_HELP: 'Docker target architecture',
@@ -916,13 +926,7 @@ class Terminal:
                                     Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,
                                     Terminal.Action.KEY_HELP: 'Docker target OS',
                                 },
-                                Terminal.COMMAND_BACK: {
-                                    Terminal.Action.KEY_EXEC: Terminal.ActionBack,
-                                },
                             },
-                        },
-                        Terminal.COMMAND_BACK: {
-                            Terminal.Action.KEY_EXEC: Terminal.ActionBack,
                         },
                     },
                 },
