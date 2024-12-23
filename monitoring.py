@@ -190,12 +190,12 @@ class DockerProcessor:
         return None, False
 
     def _add_to_cache(self, image_name, prefix, manifest):
-        self.cache.update({
-            image_name: {
-                prefix: {
-                    'manifest': manifest,
-                    'updated_date': datetime.utcnow().isoformat()
-                }
+        if image_name not in self.cache:
+            self.cache[image_name] = {}
+        self.cache[image_name].update({
+            prefix: {
+                'manifest': manifest,
+                'updated_date': datetime.utcnow().isoformat()
             }
         })
 
@@ -207,7 +207,10 @@ class DockerProcessor:
         manifest_res = self.__exec_command(command)
         if config.DEBUG_MODE:
             self.__debug_write_manifest_info(image_name, prefix, manifest_res)
-        manifest = json.loads(''.join(manifest_res))
+        try:
+            manifest = json.loads(''.join(manifest_res))
+        except:
+            manifest = json.loads('{}')
         self._add_to_cache(image_name, prefix, manifest)
         return manifest
 
@@ -218,11 +221,6 @@ class DockerProcessor:
 
         get_manifest_command = self.Commands.docker_inspect.format(image_name=image_name)
         manifests_json = self._get_manifest(image_name, prefix, get_manifest_command)
-
-        # manifest_res = self.__exec_command(self.Commands.docker_inspect.format(image_name=image_name))
-        # if config.DEBUG_MODE:
-        #     self.__debug_write_manifest_info(image_name, 'current_local', manifest_res)
-        # manifests_json = json.loads(''.join(manifest_res))
 
         for manifest_json in manifests_json:
             if manifest_json.get('Architecture') == config.DOCKER_ARCHITECTURE:
@@ -244,14 +242,11 @@ class DockerProcessor:
         image_name_without_tag = image_name.split(':')[0]
 
         # get current remote info
-        manifest_res = self.__exec_command(self.Commands.docker_buildx_inspect.format(image_name=image_name))
-        if config.DEBUG_MODE:
-            self.__debug_write_manifest_info(image_name, 'remote_current', manifest_res)
-        try:
-            manifest_json = json.loads(''.join(manifest_res))
-        except:
-            manifest_json = json.loads('{}')
-
+        manifest_json = self._get_manifest(
+            image_name,
+            'remote_current',
+            self.Commands.docker_buildx_inspect.format(image_name=image_name)
+        )
         response['current_remote'] = {
             'digest': dict_deep_get(manifest_json, ['manifest', 'digest']) or '-',
             'version': dict_deep_get(manifest_json, [
@@ -263,16 +258,11 @@ class DockerProcessor:
             response['latest_remote'] = response['current_remote']
         else:
             # get info about latest version of image
-            latest_manifest_res = self.__exec_command(
+            latest_manifest_json = self._get_manifest(
+                image_name,
+                'remote_latest',
                 self.Commands.docker_buildx_inspect.format(image_name=f'{image_name_without_tag}:latest')
             )
-            if config.DEBUG_MODE:
-                self.__debug_write_manifest_info(image_name, 'remote_latest', latest_manifest_res)
-            try:
-                latest_manifest_json = json.loads(''.join(latest_manifest_res))
-            except:
-                latest_manifest_json = json.loads('{}')
-
             response['latest_remote'] = {
                 'digest': dict_deep_get(latest_manifest_json, ['manifest', 'digest']) or '-',
                 'version': dict_deep_get(latest_manifest_json, [
