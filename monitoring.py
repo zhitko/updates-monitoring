@@ -8,6 +8,7 @@ from typing import Dict, List
 import termios
 import tty
 from pathlib import Path
+import collections
 from datetime import datetime, timedelta
 
 
@@ -516,6 +517,10 @@ class Terminal:
         ARROW_DOWN_KEY = 'B'
         ENTER_KEY = '\n'
 
+        def __init__(self, *args, **kwargs):
+            Terminal.Action.__init__(self, *args, **kwargs)
+            self.menu_index = 0
+
         def _get_sub_actions(self):
             actions_config = self._get_by_key(Terminal.ActionMenu.KEY_SUBM, [])
             actions = []
@@ -529,9 +534,8 @@ class Terminal:
             self.print('Args:', args)
             self.actions = self._get_sub_actions()
             action = None
-            index = 0
             while action is None:
-                (action, index) = self._show_sub_menu(index)
+                (action, self.menu_index) = self._show_sub_menu(self.menu_index)
             return action
 
         def _apply_limits_for_index(self, index):
@@ -774,7 +778,8 @@ class Terminal:
                 ),
             }
 
-        def _get_from_config(self, commands):
+        def _get_from_config(self):
+            commands = {}
             containers_from_config = config.CONTAINER_PROCESSORS_MAPPING
             # Add containers from config
             for key in containers_from_config.keys():
@@ -811,13 +816,15 @@ class Terminal:
         def _get_by_key(self, key, default = None):
             values = Terminal.ActionMenu._get_by_key(self, key, default)
             if key == Terminal.ActionMenu.KEY_SUBM and values == default:
-                values = {}
-                values[Terminal.COMMAND_BACK] = {
-                    Terminal.Action.KEY_EXEC: Terminal.ActionBack,
-                }
-                values = self._get_from_config(values)
+                values = self._get_from_config()
                 values = self._update_from_pve(values)
-                # values = collections.OrderedDict(sorted(values.items()))                
+                values = collections.OrderedDict(sorted(values.items()))
+                values = {
+                    Terminal.COMMAND_BACK: {
+                        Terminal.Action.KEY_EXEC: Terminal.ActionBack,
+                    },
+                    **values,
+                }
             return values
 
     def _init_commands(self):
