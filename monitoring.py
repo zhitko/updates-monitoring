@@ -10,6 +10,7 @@ import tty
 from pathlib import Path
 import collections
 from datetime import datetime, timedelta
+import logging
 
 
 class Config:
@@ -22,6 +23,9 @@ class Config:
     CACHE_FILE = './cache.json'
     USE_CACHE = True
     CACHE_TTL = 23 * 60 * 60  # in seconds
+    LOG_FILE = './log.txt'
+    LOGGER_LOG_LEVEL = 'debug'
+    LOGGER_TERMINAL_LEVEL = 'info'
     # -------------------------------------------------------------------------------------
     # Docker manifest config
     # -------------------------------------------------------------------------------------
@@ -38,6 +42,15 @@ class Config:
     # -------------------------------------------------------------------------------------
     # Variables
     CONTAINER_PROCESSORS_MAPPING = {}
+    LOG_LEVEL_MAPPER = {
+        'critical': logging.CRITICAL,
+        'fatal': logging.FATAL,
+        'error': logging.ERROR,
+        'warning': logging.WARNING,
+        'info': logging.INFO,
+        'debug': logging.DEBUG,
+        'notset': logging.NOTSET,
+    }
     # -------------------------------------------------------------------------------------
 
     def __init__(self, **entries):
@@ -61,6 +74,21 @@ class Config:
 
 
 config = Config()
+
+logging_format = '%(asctime)s %(name)s %(levelname)s %(message)s'
+logging.basicConfig(
+    filename=config.LOG_FILE,
+    filemode='a',
+    format=logging_format,
+    datefmt='%H:%M:%S',
+    level=logging.DEBUG
+)
+logger = logging.getLogger()
+logger.setLevel(config.LOG_LEVEL_MAPPER.get(config.LOGGER_LOG_LEVEL, logging.DEBUG))
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(config.LOG_LEVEL_MAPPER.get(config.LOGGER_TERMINAL_LEVEL, logging.INFO))
+handler.setFormatter(logging.Formatter(logging_format))
+logger.addHandler(handler)
 
 
 def load_config():
@@ -96,7 +124,6 @@ def is_file_exists(file_path):
 
 
 def write_json(data, file_path):
-    print(data)
     json_object = json.dumps(data, indent=4, ensure_ascii=False)
     with open(file_path, 'w') as outfile:
         outfile.write(json_object)
@@ -126,16 +153,17 @@ class DockerProcessor:
         docker_buildx_inspect = 'docker buildx imagetools inspect {image_name} --format "{{{{json .}}}}"'
 
     def __load_cache(self):
-        print('Trying to load cache from file...')
+        logger.info('Trying to load cache from file...')
         try:
             with open(Config.CACHE_FILE, 'r') as infile:
-                print('Cache was successfully loaded')
+                logger.info('Cache was successfully loaded')
                 return json.load(infile)
         except FileNotFoundError:
+            logger.error('Something wrong during the loading cache')
             return {}
 
     def __write_cache(self):
-        print('Write cache to file...')
+        logger.info('Write cache to file...')
         json_object = json.dumps(self.cache, indent=4, ensure_ascii=False)
         with open(Config.CACHE_FILE, 'w') as outfile:
             outfile.write(json_object)
@@ -150,9 +178,9 @@ class DockerProcessor:
             except FileExistsError:
                 pass
             except PermissionError:
-                print(f"Permission denied: Unable to create '{config.MANIFESTS_FOLDER}'.")
+                logger.error(f"Permission denied: Unable to create '{config.MANIFESTS_FOLDER}'.")
             except Exception as e:
-                print(f"An error occurred: {e}")
+                logger.error(f"An error occurred: {e}")
 
     def __enter__(self):
         return self
@@ -185,9 +213,9 @@ class DockerProcessor:
             updated_date and
             datetime.utcnow() < datetime.fromisoformat(updated_date) + timedelta(seconds=Config.CACHE_TTL)
         ):
-            print(f'got manifest from cache for image_name={image_name} with prefix={prefix}')
+            logger.info(f'Got manifest from cache for image_name "{image_name}" with prefix "{prefix}"')
             return manifest, True
-        print(f'There is no cache or cache outdated for image_name={image_name} with prefix={prefix}')
+        logger.info(f'There is no cache or cache outdated for image_name "{image_name}" with prefix "{prefix}"')
         return None, False
 
     def _add_to_cache(self, image_name, prefix, manifest):
@@ -216,6 +244,7 @@ class DockerProcessor:
         return manifest
 
     def _get_local_docker_image_digest(self, image_name):
+        logger.info('Getting info from local manifest')
         prefix = 'current_local'
         digest = '-'
         version = '-'
@@ -237,6 +266,7 @@ class DockerProcessor:
         }
 
     def _get_remote_docker_image_digest(self, image_name):
+        logger.info('Getting info from remote manifest')
         response = {}
         # parse image name
         tag = image_name.split(':')[-1]
@@ -276,12 +306,12 @@ class DockerProcessor:
         images = self._get_images()
         images_updates_info = {}
         for image_name in images:
-
-            print(f'[{self.container_id}] {image_name}')
+            logger.info('*' * 50)
+            logger.info(f'[{self.container_id}] {image_name}')
             local_repo_digest_info = self._get_local_docker_image_digest(image_name)
-            print('local_repo_digest = %s' % local_repo_digest_info)
+            logger.debug('local_repo_digest = %s' % local_repo_digest_info)
             remote_repo_digest_info = self._get_remote_docker_image_digest(image_name)
-            print('remote_repo_digest = %s' % remote_repo_digest_info)
+            logger.debug('remote_repo_digest = %s' % remote_repo_digest_info)
 
             images_updates_info[image_name] = {
                 'type': self.type,
@@ -292,6 +322,7 @@ class DockerProcessor:
                 'remote_latest_digest': remote_repo_digest_info['latest_remote']['digest'],
                 'remote_latest_version': remote_repo_digest_info['latest_remote']['version'],
             }
+            logger.info('Manifests info successfully collected')
         return images_updates_info
 
 
@@ -332,7 +363,7 @@ class PVEMonitoring:
         return containers
 
     def _get_containers_ids(self, exclude_templates=True):
-        print('Get containers ids...')
+        logger.info('Get containers ids...')
         containers_ids = self.__exec_command(self.Commands.get_containers_ids)
         if exclude_templates:
             for container_id in containers_ids:
@@ -367,20 +398,25 @@ class PVEMonitoring:
            }
         }
         """
-        print('Checking updates...')
+        logger.info('Checking updates...')
         containers_updates_info = {}
         containers_ids = self._get_containers_ids()
-        print(f'Got containers = {containers_ids}')
+        logger.info(f'Got containers = {containers_ids}')
         for container_id in containers_ids:
             processors_labels = config.CONTAINER_PROCESSORS_MAPPING.get(container_id, [])
             for processor_label in processors_labels:
                 processor = processors_mapping.get(processor_label)
                 if not processor:
                     continue
-                print(f'Trying to get updates using processor "{processor_label}" for container id = {container_id}')
+                logger.info('-' * 100)
+                logger.info(f'Trying to get updates using processor "{processor_label}" for container id = {container_id}')
+                logger.info('-' * 100)
                 with processor(container_id) as proc:
                     images_updates_info = proc.process()
                     containers_updates_info[container_id] = images_updates_info
+        logger.info('-' * 100)
+        logger.info(f'Updating info successfully collected')
+        logger.info('-' * 100)
         return containers_updates_info
 
 
@@ -420,10 +456,10 @@ class InfluxDBSender:
         return data_raw
 
     def send(self, monitoring_info):
-        print('Starting sending updating info to InfluxDB')
+        logger.info('Starting sending updating info to InfluxDB')
         url = f'{self.host}:{self.port}/api/v2/write?org={self.org}&bucket={self.bucket}&precision=ns'
         data = self._prepare_data(monitoring_info)
-        print(data)
+        logger.debug(data)
         try:
             response = requests.post(
                 url,
@@ -435,10 +471,9 @@ class InfluxDBSender:
                 data=data
             )
             response.raise_for_status()
-            print('Successfully sent updating info to InfluxDB')
+            logger.info('Successfully sent updating info to InfluxDB')
         except Exception as e:
-            print('Something wrong during sending updating info to InfluxDB')
-            print('error = %s' % e)
+            logger.info(f'Something wrong during sending updating info to InfluxDB. Error = {e}')
 
 
 class Terminal:
