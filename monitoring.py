@@ -8,7 +8,6 @@ from typing import Dict, List
 import termios
 import tty
 from pathlib import Path
-import collections
 from datetime import datetime, timedelta
 
 
@@ -717,7 +716,7 @@ class Terminal:
             name = self._get_by_key(Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_NAME, '-')
             state = self._get_by_key(Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_STATUS, '')
             length = round(self._get_screen_width() / 2)
-            return f'{name} ({state}) {' ' + str(procs):.>{length}}'
+            return f'{name} ({state}) {" " + str(procs):.>{length}}'
 
         def _get_from_config(self, commands):
             for processor in processors_mapping.keys():
