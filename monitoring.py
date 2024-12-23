@@ -577,7 +577,7 @@ class Terminal:
             width = self._get_screen_width()
             line = command
             if isinstance(description, str) and description:
-                line = f"{command} {description:.>{width - len(command)}}"
+                line = f"{command} {' ' + description:.>{width - len(command)}}"
             if current:
                 self.print(f"\033[96m[*] {line}\033[00m")
             else:
@@ -648,8 +648,9 @@ class Terminal:
             self.clear()
             self.print(f'Current value {key}: {self.get_description()}')
             value = input('Enter new value: ')
-            config.set(key, value, type)
-            save_config()
+            if len(str(value)) != 0:
+                config.set(key, value, type)
+                save_config()
             return self.get_parent()
 
     class ActionHelp(Action):
@@ -713,10 +714,10 @@ class Terminal:
 
         def get_description(self):
             procs = self._get_by_key(Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_PROCESSORS, '')
-            name = self._get_by_key(Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_NAME, '')
+            name = self._get_by_key(Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_NAME, '-')
             state = self._get_by_key(Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_STATUS, '')
             length = round(self._get_screen_width() / 2)
-            return f'{name} ({state}){str(procs):.>{length}}'
+            return f'{name} ({state}) {' ' + str(procs):.>{length}}'
 
         def _get_from_config(self, commands):
             for processor in processors_mapping.keys():
@@ -756,7 +757,7 @@ class Terminal:
         def _upsert_config(self, commands, key, options):
             existed = commands.get(key, {
                 Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_PROCESSORS: [],
-                Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_NAME: '',
+                Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_NAME: '-',
                 Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_STATUS: Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_STATUS_MISSING,
                 Terminal.ActionUpdateContainerProcessors.COMMAND_CONFIG_LXC_ID: key,
                 Terminal.Action.KEY_EXEC: Terminal.ActionUpdateContainerProcessorsItem,
@@ -908,6 +909,15 @@ class Terminal:
                                     Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,
                                     Terminal.ActionUpdateConfig.KEY_TYPE: bool,
                                     Terminal.Action.KEY_HELP: 'Enable cache mode',
+                                },
+                                'CACHE_FILE': {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,\
+                                    Terminal.Action.KEY_HELP: 'Cache file path',
+                                },
+                                'CACHE_TTL': {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,
+                                    Terminal.ActionUpdateConfig.KEY_TYPE: int,
+                                    Terminal.Action.KEY_HELP: 'Cache TTL',
                                 },
                             },
                         },
