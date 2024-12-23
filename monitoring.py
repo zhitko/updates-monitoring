@@ -9,6 +9,7 @@ import termios
 import tty
 from pathlib import Path
 import collections
+from datetime import datetime, timedelta
 
 
 class Config:
@@ -18,7 +19,9 @@ class Config:
     CONFIG_FILE = './monitoring.json'
     DEBUG_MODE = True
     MANIFESTS_FOLDER = 'manifests'
+    CACHE_FILE = './cache.json'
     USE_CACHE = True
+    CACHE_TTL = 23 * 60 * 60  # in seconds
     # -------------------------------------------------------------------------------------
     # Docker manifest config
     # -------------------------------------------------------------------------------------
@@ -33,11 +36,9 @@ class Config:
     INFLUX_BUCKET = 'pve_updates'
     INFLUX_TOKEN = ''
     # -------------------------------------------------------------------------------------
-
-    container_processors_mapping = {
-        '101': ['docker'],
-        '122': ['docker'],
-    }
+    # Variables
+    CONTAINER_PROCESSORS_MAPPING = {}
+    # -------------------------------------------------------------------------------------
 
     def __init__(self, **entries):
         self.__dict__.update(entries)
@@ -58,10 +59,13 @@ class Config:
     def set(self, item, value, type=str):
         self.__dict__.update({item: self.convert(value, type)})
 
+
 config = Config()
+
 
 def load_config():
     return read_json(config.CONFIG_FILE, vars(config))
+
 
 def save_config():
     write_json(vars(config), config.CONFIG_FILE)
@@ -121,9 +125,25 @@ class DockerProcessor:
         docker_inspect = 'docker inspect {image_name}'
         docker_buildx_inspect = 'docker buildx imagetools inspect {image_name} --format "{{{{json .}}}}"'
 
+    def __load_cache(self):
+        print('Trying to load cache from file...')
+        try:
+            with open(Config.CACHE_FILE, 'r') as infile:
+                print('Cache was successfully loaded')
+                return json.load(infile)
+        except FileNotFoundError:
+            return {}
+
+    def __write_cache(self):
+        print('Write cache to file...')
+        json_object = json.dumps(self.cache, indent=4, ensure_ascii=False)
+        with open(Config.CACHE_FILE, 'w') as outfile:
+            outfile.write(json_object)
+
     def __init__(self, container_id):
         self.container_id = container_id
         self.type = 'docker'
+        self.cache = self.__load_cache() if config.USE_CACHE else {}
         if config.DEBUG_MODE:
             try:
                 os.mkdir(config.MANIFESTS_FOLDER)
@@ -133,6 +153,12 @@ class DockerProcessor:
                 print(f"Permission denied: Unable to create '{config.MANIFESTS_FOLDER}'.")
             except Exception as e:
                 print(f"An error occurred: {e}")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.__write_cache()
 
     def __exec_command(self, cmd):
         cmd = self.Commands.base_command.format(
@@ -152,14 +178,52 @@ class DockerProcessor:
     def _get_images(self):
         return self.__exec_command(self.Commands.get_images)
 
-    def _get_local_docker_image_digest(self, image_name):
-        version = ''
-        digest = ''
+    def _get_from_cache(self, image_name, prefix):
+        manifest = dict_deep_get(self.cache, [image_name, prefix, 'manifest'])
+        updated_date = dict_deep_get(self.cache, [image_name, prefix, 'updated_date'])
+        if (
+            updated_date and
+            datetime.utcnow() < datetime.fromisoformat(updated_date) + timedelta(seconds=Config.CACHE_TTL)
+        ):
+            print(f'got manifest from cache for image_name={image_name} with prefix={prefix}')
+            return manifest, True
+        print(f'There is no cache or cache outdated for image_name={image_name} with prefix={prefix}')
+        return None, False
 
-        manifest_res = self.__exec_command(self.Commands.docker_inspect.format(image_name=image_name))
+    def _add_to_cache(self, image_name, prefix, manifest):
+        self.cache.update({
+            image_name: {
+                prefix: {
+                    'manifest': manifest,
+                    'updated_date': datetime.utcnow().isoformat()
+                }
+            }
+        })
+
+    def _get_manifest(self, image_name, prefix, command):
+        if config.USE_CACHE:
+            manifest, loaded_from_cache = self._get_from_cache(image_name, prefix)
+            if loaded_from_cache:
+                return manifest
+        manifest_res = self.__exec_command(command)
         if config.DEBUG_MODE:
-            self.__debug_write_manifest_info(image_name, 'current_local', manifest_res)
-        manifests_json = json.loads(''.join(manifest_res))
+            self.__debug_write_manifest_info(image_name, prefix, manifest_res)
+        manifest = json.loads(''.join(manifest_res))
+        self._add_to_cache(image_name, prefix, manifest)
+        return manifest
+
+    def _get_local_docker_image_digest(self, image_name):
+        prefix = 'current_local'
+        digest = '-'
+        version = '-'
+
+        get_manifest_command = self.Commands.docker_inspect.format(image_name=image_name)
+        manifests_json = self._get_manifest(image_name, prefix, get_manifest_command)
+
+        # manifest_res = self.__exec_command(self.Commands.docker_inspect.format(image_name=image_name))
+        # if config.DEBUG_MODE:
+        #     self.__debug_write_manifest_info(image_name, 'current_local', manifest_res)
+        # manifests_json = json.loads(''.join(manifest_res))
 
         for manifest_json in manifests_json:
             if manifest_json.get('Architecture') == config.DOCKER_ARCHITECTURE:
@@ -318,14 +382,15 @@ class PVEMonitoring:
         containers_ids = self._get_containers_ids()
         print(f'Got containers = {containers_ids}')
         for container_id in containers_ids:
-            processors_labels = config.container_processors_mapping.get(container_id, [])
+            processors_labels = config.CONTAINER_PROCESSORS_MAPPING.get(container_id, [])
             for processor_label in processors_labels:
                 processor = processors_mapping.get(processor_label)
                 if not processor:
                     continue
                 print(f'Trying to get updates using processor "{processor_label}" for container id = {container_id}')
-                images_updates_info = processor(container_id).process()
-                containers_updates_info[container_id] = images_updates_info
+                with processor(container_id) as proc:
+                    images_updates_info = proc.process()
+                    containers_updates_info[container_id] = images_updates_info
         return containers_updates_info
 
 
@@ -610,7 +675,7 @@ class Terminal:
         def get_description(self):
             processor = self.get_command()
             container = self.get_parent().get_command()
-            processors = config.container_processors_mapping.get(container, [])
+            processors = config.CONTAINER_PROCESSORS_MAPPING.get(container, [])
             if processor in processors:
                 return '(V)'
             else:
@@ -620,12 +685,12 @@ class Terminal:
             self.print('Args:', args)
             processor = self.get_command()
             container = self.get_parent().get_command()
-            processors = config.container_processors_mapping.get(container, [])
+            processors = config.CONTAINER_PROCESSORS_MAPPING.get(container, [])
             if processor in processors:
                 processors.remove(processor)
             else:
                 processors.append(processor)
-            config.container_processors_mapping[container] = processors
+            config.CONTAINER_PROCESSORS_MAPPING[container] = processors
             save_config()
             return self.get_parent()
 
@@ -637,7 +702,7 @@ class Terminal:
         def run(self, args):
             self.print('Args:', args)
             container = self.get_parent().get_command()
-            config.container_processors_mapping.pop(container, None)
+            config.CONTAINER_PROCESSORS_MAPPING.pop(container, None)
             save_config()
             return self.get_parent().get_parent()
 
@@ -716,7 +781,7 @@ class Terminal:
             }
 
         def _get_from_config(self):
-            containers_from_config = config.container_processors_mapping
+            containers_from_config = config.CONTAINER_PROCESSORS_MAPPING
             # Add containers from config
             commands = {}
             for key in containers_from_config.keys():
