@@ -105,10 +105,11 @@ def save_config():
 # -------------------------------------------------------------------------------------
 
 
-def dict_deep_get(obj: Dict, route: List[str]):
+def dict_deep_get(obj: Dict, route: List[str], default_value=None):
     """
     recursive function which allows to get value from dict with several levels by route
     """
+    default_value = default_value if default_value is not None else ''
     count_points = len(route)
     value = ''
     for count, point in enumerate(route):
@@ -116,8 +117,8 @@ def dict_deep_get(obj: Dict, route: List[str]):
         if count + 1 != count_points:
             if not isinstance(value, dict):
                 return ''
-            return dict_deep_get(value, route[1::])
-    return value or ''
+            return dict_deep_get(value, route[1::], default_value)
+    return value or default_value
 
 
 def is_file_exists(file_path):
@@ -210,7 +211,7 @@ class DockerProcessor:
         return self.__exec_command(self.Commands.get_images)
 
     def _get_from_cache(self, image_name, prefix):
-        manifest = dict_deep_get(self.cache, [image_name, prefix, 'manifest'])
+        manifest = dict_deep_get(self.cache, [image_name, prefix, 'manifest'], {})
         updated_date = dict_deep_get(self.cache, [image_name, prefix, 'updated_date'])
         if (
             updated_date and
@@ -246,32 +247,10 @@ class DockerProcessor:
         self._add_to_cache(image_name, prefix, manifest)
         return manifest
 
-    def _get_local_docker_image_digest(self, image_name):
-        logger.info('Getting info from local manifest')
-        prefix = 'current_local'
-        digest = '-'
-        version = ''
-        # parse image name
-        tag = image_name.split(':')[-1] if len(image_name.split(':')) > 1 else ''
-
-        get_manifest_command = self.Commands.docker_inspect.format(image_name=image_name)
-        manifests_json = self._get_manifest(image_name, prefix, get_manifest_command)
-
-        for manifest_json in manifests_json:
-            if manifest_json.get('Architecture') == config.DOCKER_ARCHITECTURE:
-                repo_digest = manifest_json.get('RepoDigests')
-                if len(repo_digest) > 0:
-                    digest = repo_digest[0].split('@')[-1]
-                version = dict_deep_get(manifest_json, ['Config', 'Labels', 'org.opencontainers.image.version']) or ''
-        return {
-            'current_local': {
-                'digest': digest,
-                'version': version or (tag if tag and tag != 'latest' else '-'),
-            }
-        }
-
     def _search_version_on_docker_hub(self, image_name, digest):
         logger.info(f'Searching for version for image "{image_name}" on docker hub')
+        if not image_name or not digest:
+            return ''
         image_name = image_name if '/' in image_name else f'library/{image_name}'
         url = config.DOCKER_HUB_SEARCH_VERSION_URL.format(image_name=image_name)
         version = ''
@@ -284,20 +263,56 @@ class DockerProcessor:
             )
             if len(list_image_info):
                 # try to find version with digits
-                versions = list(filter(lambda x: any(char.isdigit() for char in x['name']), list_image_info))
-                # get version from list of versions if we found some version with digits else get first version from list
-                version = versions[0]['name'] if versions else list_image_info[0]['name']
+                # versions = list(filter(lambda x: any(char.isdigit() for char in x['name']), list_image_info))
+                # get version from list of versions
+                # if we found some version with digits else get first version from list
+                # version = versions[0]['name'] if versions else list_image_info[0]['name']
+                version = ', '.join([i.get('name') for i in list_image_info])
             logger.info('Version was successfully found')
         except Exception as e:
             logger.error(f'Something wrong during getting image info on docker hub. Error = {e}')
         return version
 
+    def _parse_image_name(self, image_name):
+        image_name_items = image_name.split(':')
+        image_name_without_tag = image_name_items[0]
+        tag = image_name_items[-1] if len(image_name_items) > 1 else ''
+        return image_name_without_tag, tag
+
+    def _get_local_docker_image_digest(self, image_name):
+        logger.info('Getting info from local manifest')
+        prefix = 'current_local'
+        digest = ''
+        manifest_version = ''
+        version = ''
+        # parse image name
+        image_name_without_tag, tag = self._parse_image_name(image_name)
+
+        get_manifest_command = self.Commands.docker_inspect.format(image_name=image_name)
+        manifests_json = self._get_manifest(image_name, prefix, get_manifest_command)
+
+        for manifest_json in manifests_json:
+            if manifest_json.get('Architecture') == config.DOCKER_ARCHITECTURE:
+                repo_digest = manifest_json.get('RepoDigests')
+                if len(repo_digest) > 0:
+                    digest = repo_digest[0].split('@')[-1]
+                manifest_version = dict_deep_get(manifest_json, ['Config', 'Labels', 'org.opencontainers.image.version'])
+
+        if not any([i in image_name_without_tag for i in self.registry_hubs_non_defaults]):
+            version = self._search_version_on_docker_hub(image_name_without_tag, digest)
+        return {
+            'current_local': {
+                'digest': digest or '-',
+                'version': version or manifest_version or (tag if tag and tag != 'latest' else '-'),
+            }
+        }
+
     def _get_remote_docker_image_digest(self, image_name):
         logger.info('Getting info from remote manifest')
         response = {}
+        current_remote_version = ''
         # parse image name
-        tag = image_name.split(':')[-1] if len(image_name.split(':')) > 1 else ''
-        image_name_without_tag = image_name.split(':')[0]
+        image_name_without_tag, tag = self._parse_image_name(image_name)
 
         # get current remote info
         manifest_json = self._get_manifest(
@@ -306,42 +321,40 @@ class DockerProcessor:
             self.Commands.docker_buildx_inspect.format(image_name=image_name)
         )
 
-        digest = dict_deep_get(manifest_json, ['manifest', 'digest']) or ''
-        version = dict_deep_get(
+        current_remote_digest = dict_deep_get(manifest_json, ['manifest', 'digest'])
+        if not any([i in image_name_without_tag for i in self.registry_hubs_non_defaults]):
+            current_remote_version = self._search_version_on_docker_hub(image_name_without_tag, current_remote_digest)
+        current_remote_manifest_version = dict_deep_get(
             manifest_json,
             ['image', f'{config.DOCKER_OS}/{config.DOCKER_ARCHITECTURE}', 'config', 'Labels', 'org.opencontainers.image.version']
-        ) or (tag if tag and tag != 'latest' else '')
-
-        if digest and not version and not any([i in image_name_without_tag for i in self.registry_hubs_non_defaults]):
-            version = self._search_version_on_docker_hub(image_name_without_tag, digest)
+        )
 
         response['current_remote'] = {
-            'digest': digest or '-',
-            'version': version or '-',
+            'digest': current_remote_digest or '-',
+            'version': current_remote_version or current_remote_manifest_version or (tag if tag and tag != 'latest' else ''),
         }
 
         if tag == 'latest':
             response['latest_remote'] = response['current_remote']
         else:
+            latest_remote_version = ''
             # get info about latest version of image
-            latest_manifest_json = self._get_manifest(
+            latest_remote_manifest_json = self._get_manifest(
                 image_name,
                 'remote_latest',
                 self.Commands.docker_buildx_inspect.format(image_name=f'{image_name_without_tag}:latest')
             )
-
-            digest = dict_deep_get(latest_manifest_json, ['manifest', 'digest']) or ''
-            version = dict_deep_get(
-                latest_manifest_json,
+            latest_remote_digest = dict_deep_get(latest_remote_manifest_json, ['manifest', 'digest'])
+            if not any([i in image_name_without_tag for i in self.registry_hubs_non_defaults]):
+                latest_remote_version = self._search_version_on_docker_hub(image_name_without_tag, latest_remote_digest)
+            latest_remote_manifest_version = dict_deep_get(
+                latest_remote_manifest_json,
                 ['image', f'{config.DOCKER_OS}/{config.DOCKER_ARCHITECTURE}', 'config', 'Labels', 'org.opencontainers.image.version']
-            ) or ''
-
-            if digest and not version and not any([i in image_name_without_tag for i in self.registry_hubs_non_defaults]):
-                version = self._search_version_on_docker_hub(image_name_without_tag, digest)
+            )
 
             response['latest_remote'] = {
-                'digest': digest or '-',
-                'version': version or '-',
+                'digest': latest_remote_digest or '-',
+                'version': latest_remote_version or latest_remote_manifest_version or '',
             }
         return response
 
@@ -1026,7 +1039,7 @@ class Terminal:
         commands = args[1:]
 
         action = self.ActionMenu(**self.commands, terminal=self)
-        
+
         while len(commands) != 0:
             sub_action = action.get_sub_action(commands[0])
             if not sub_action:
@@ -1034,7 +1047,7 @@ class Terminal:
             else:
                 commands.pop(0)
                 action = sub_action
-        
+
         while action is not None:
             action = action.run(commands)
 
