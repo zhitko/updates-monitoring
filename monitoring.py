@@ -280,7 +280,7 @@ class DockerProcessor:
             response.raise_for_status()
             json_data = response.json()
             list_image_info = list(filter(
-                lambda x: x['digest'] == digest and x['name'] != 'latest', json_data.get('results', []))
+                lambda x: x.get('digest') == digest and x['name'] != 'latest', json_data.get('results', []))
             )
             if len(list_image_info):
                 # try to find version with digits
