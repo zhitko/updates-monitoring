@@ -31,6 +31,8 @@ class Config:
     # -------------------------------------------------------------------------------------
     DOCKER_ARCHITECTURE = 'amd64'
     DOCKER_OS = 'linux'
+    DOCKER_REGISTRY_HUBS = 'lscr.io,ghcr.io'
+    DOCKER_HUB_SEARCH_VERSION_URL = 'https://hub.docker.com/v2/repositories/{image_name}/tags?page_size=100&page=1&ordering=last_updated'
     # -------------------------------------------------------------------------------------
     # Influx config
     # -------------------------------------------------------------------------------------
@@ -129,7 +131,7 @@ def write_json(data, file_path):
         outfile.write(json_object)
 
 
-def read_json(file_path, default = None):
+def read_json(file_path, default=None):
     if not default:
         default = {}
     if not is_file_exists(file_path):
@@ -172,6 +174,7 @@ class DockerProcessor:
         self.container_id = container_id
         self.type = 'docker'
         self.cache = self.__load_cache() if config.USE_CACHE else {}
+        self.registry_hubs_non_defaults = config.DOCKER_REGISTRY_HUBS.split(',')
         if config.DEBUG_MODE:
             try:
                 os.mkdir(config.MANIFESTS_FOLDER)
@@ -247,7 +250,9 @@ class DockerProcessor:
         logger.info('Getting info from local manifest')
         prefix = 'current_local'
         digest = '-'
-        version = '-'
+        version = ''
+        # parse image name
+        tag = image_name.split(':')[-1] if len(image_name.split(':')) > 1 else ''
 
         get_manifest_command = self.Commands.docker_inspect.format(image_name=image_name)
         manifests_json = self._get_manifest(image_name, prefix, get_manifest_command)
@@ -257,19 +262,40 @@ class DockerProcessor:
                 repo_digest = manifest_json.get('RepoDigests')
                 if len(repo_digest) > 0:
                     digest = repo_digest[0].split('@')[-1]
-                version = dict_deep_get(manifest_json, ['Config', 'Labels', 'org.opencontainers.image.version']) or '-'
+                version = dict_deep_get(manifest_json, ['Config', 'Labels', 'org.opencontainers.image.version']) or ''
         return {
             'current_local': {
                 'digest': digest,
-                'version': version,
+                'version': version or (tag if tag and tag != 'latest' else '-'),
             }
         }
+
+    def _search_version_on_docker_hub(self, image_name, digest):
+        logger.info(f'Searching for version for image "{image_name}" on docker hub')
+        url = config.DOCKER_HUB_SEARCH_VERSION_URL.format(image_name=image_name)
+        version = ''
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            json_data = response.json()
+            list_image_info = list(filter(
+                lambda x: x['digest'] == digest and x['name'] != 'latest', json_data.get('results', []))
+            )
+            if len(list_image_info):
+                # try to find version with digits
+                versions = list(filter(lambda x: any(char.isdigit() for char in x['name']), list_image_info))
+                # get version from list of versions if we found some version with digits else get first version from list
+                version = versions[0]['name'] if versions else list_image_info[0]['name']
+            logger.info('Version was successfully found')
+        except Exception as e:
+            logger.error(f'Something wrong during getting image info on docker hub. Error = {e}')
+        return version
 
     def _get_remote_docker_image_digest(self, image_name):
         logger.info('Getting info from remote manifest')
         response = {}
         # parse image name
-        tag = image_name.split(':')[-1]
+        tag = image_name.split(':')[-1] if len(image_name.split(':')) > 1 else ''
         image_name_without_tag = image_name.split(':')[0]
 
         # get current remote info
@@ -278,11 +304,19 @@ class DockerProcessor:
             'remote_current',
             self.Commands.docker_buildx_inspect.format(image_name=image_name)
         )
+
+        digest = dict_deep_get(manifest_json, ['manifest', 'digest']) or ''
+        version = dict_deep_get(
+            manifest_json,
+            ['image', f'{config.DOCKER_OS}/{config.DOCKER_ARCHITECTURE}', 'config', 'Labels', 'org.opencontainers.image.version']
+        ) or (tag if tag and tag != 'latest' else '')
+
+        if digest and not version and not any([i in image_name_without_tag for i in self.registry_hubs_non_defaults]):
+            version = self._search_version_on_docker_hub(image_name_without_tag, digest)
+
         response['current_remote'] = {
-            'digest': dict_deep_get(manifest_json, ['manifest', 'digest']) or '-',
-            'version': dict_deep_get(manifest_json, [
-                'image', f'{config.DOCKER_OS}/{config.DOCKER_ARCHITECTURE}', 'config', 'Labels', 'org.opencontainers.image.version'
-            ]) or '-',
+            'digest': digest or '-',
+            'version': version or '-',
         }
 
         if tag == 'latest':
@@ -294,11 +328,19 @@ class DockerProcessor:
                 'remote_latest',
                 self.Commands.docker_buildx_inspect.format(image_name=f'{image_name_without_tag}:latest')
             )
+
+            digest = dict_deep_get(latest_manifest_json, ['manifest', 'digest']) or ''
+            version = dict_deep_get(
+                latest_manifest_json,
+                ['image', f'{config.DOCKER_OS}/{config.DOCKER_ARCHITECTURE}', 'config', 'Labels', 'org.opencontainers.image.version']
+            ) or ''
+
+            if digest and not version and not any([i in image_name_without_tag for i in self.registry_hubs_non_defaults]):
+                version = self._search_version_on_docker_hub(image_name_without_tag, digest)
+
             response['latest_remote'] = {
-                'digest': dict_deep_get(latest_manifest_json, ['manifest', 'digest']) or '-',
-                'version': dict_deep_get(latest_manifest_json, [
-                    'image', f'{config.DOCKER_OS}/{config.DOCKER_ARCHITECTURE}', 'config', 'Labels', 'org.opencontainers.image.version'
-                ]) or '-',
+                'digest': digest or '-',
+                'version': version or '-',
             }
         return response
 
@@ -473,7 +515,7 @@ class InfluxDBSender:
             response.raise_for_status()
             logger.info('Successfully sent updating info to InfluxDB')
         except Exception as e:
-            logger.info(f'Something wrong during sending updating info to InfluxDB. Error = {e}')
+            logger.error(f'Something wrong during sending updating info to InfluxDB. Error = {e}')
 
 
 class Terminal:
