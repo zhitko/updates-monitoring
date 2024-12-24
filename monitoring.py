@@ -272,6 +272,7 @@ class DockerProcessor:
 
     def _search_version_on_docker_hub(self, image_name, digest):
         logger.info(f'Searching for version for image "{image_name}" on docker hub')
+        image_name = image_name if '/' in image_name else f'library/{image_name}'
         url = config.DOCKER_HUB_SEARCH_VERSION_URL.format(image_name=image_name)
         version = ''
         try:
