@@ -11,6 +11,7 @@ from pathlib import Path
 import collections
 from datetime import datetime, timedelta
 import logging
+import re
 
 
 class Config:
@@ -532,6 +533,58 @@ class InfluxDBSender:
             logger.error(f'Something wrong during sending updating info to InfluxDB. Error = {e}')
 
 
+class CronTab:
+    CRON_PATTERN = r"^((?<![\d\-\*])((\*\/)?([0-5]?[0-9])((\,|\-|\/)([0-5]?[0-9]))*|\*)[^\S\r\n]+((\*\/)?((2[0-3]|1[0-9]|[0-9]|00))((\,|\-|\/)(2[0-3]|1[0-9]|[0-9]|00))*|\*)[^\S\r\n]+((\*\/)?([1-9]|[12][0-9]|3[01])((\,|\-|\/)([1-9]|[12][0-9]|3[01]))*|\*)[^\S\r\n]+((\*\/)?([1-9]|1[0-2])((\,|\-|\/)([1-9]|1[0-2]))*|\*|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))[^\S\r\n]+((\*\/)?[0-6]((\,|\-|\/)[0-6])*|\*|00|(sun|mon|tue|wed|thu|fri|sat))[^\S\r\n]*(?:\bexpr \x60date \+\\\%W\x60 \\\% \d{1,2} \> \/dev\/null \|\|)?(?=$| |\'|\"))|@(annually|yearly|monthly|weekly|daily|hourly|reboot)$"
+    CRONTAB_ID = 'MONITORING-SCRIPT-ID'
+
+    CRONTAB_COMMAND_LIST = 'crontab -l'
+    CRONTAB_COMMAND_REMOVE = f"crontab -l | grep -v '# {CRONTAB_ID}' | crontab -"
+    CRONTAB_COMMAND_ADD = '(crontab -l; echo "{cron_command}") | crontab -'
+
+    def __init__(self):
+        self.cron_time = None
+        self.python_path = sys.executable
+        self.script_path = file_path = os.path.realpath(__file__)
+
+    def is_enabled(self):
+        crontab_list = os.popen(self.CRONTAB_COMMAND_LIST).read()
+        for crontab_line in crontab_list.split('\n'):
+            if crontab_line.endswith(self.CRONTAB_ID):
+                cron_time = re.search(self.CRON_PATTERN, crontab_line)
+                self.cron_time = cron_time.group(0)
+                return True
+        return False
+
+    def apply(self):
+        os.popen(self.CRONTAB_COMMAND_REMOVE).read()
+        cron_command = f'{self.cron_time} {self.python_path} {self.script_path} process # {self.CRONTAB_ID}'
+        print(cron_command)
+        os.popen(self.CRONTAB_COMMAND_ADD.format(cron_command = cron_command)).read()
+
+    def remove(self):
+        os.popen(self.CRONTAB_COMMAND_REMOVE).read()
+        self.cron_time = None
+
+    def validate(self, cron):
+        if re.match(self.CRON_PATTERN, cron):
+            return (None, cron)
+        else:
+            return ('Error', None)
+
+    def get_cron_line(self):
+        crontab_list = os.popen(self.CRONTAB_COMMAND_LIST).read()
+        for crontab_line in crontab_list.split('\n'):
+            if crontab_line.endswith(self.CRONTAB_ID):
+                return crontab_line
+        return None
+
+    def get_cron_time(self):
+        return self.cron_time
+
+    def set_cron_time(self, cron_time):
+        self.cron_time = cron_time
+
+
 class Terminal:
     COMMAND_BACK = 'back'
 
@@ -918,6 +971,70 @@ class Terminal:
                 }
             return values
 
+    class ActionCronMenu(ActionMenu):
+        CRON_DELETE_ACTION = 'delete'
+
+        def __init__(self, *args, **kwargs):
+            Terminal.ActionMenu.__init__(self, *args, **kwargs)
+            self.cron_tab = CronTab()
+
+        def _get_sub_actions(self, *args, **kwargs):
+            actions = Terminal.ActionMenu._get_sub_actions(self, *args, **kwargs)
+            enabled = self.cron_tab.is_enabled()
+            if enabled:
+                actions.append(
+                    self._create_action(self.CRON_DELETE_ACTION, {
+                        Terminal.Action.KEY_EXEC: Terminal.ActionCronRemove
+                        }
+                    )
+                )
+            return actions
+
+        def get_description(self):
+            enabled = self.cron_tab.is_enabled()
+            current_cron = self.cron_tab.get_cron_time()
+            description = f'Cron is {'enabled' if enabled else 'disabled'} ({current_cron if current_cron and enabled else '-'})'
+            return description
+
+    class ActionCronRemove(Action):
+
+        def __init__(self, *args, **kwargs):
+            Terminal.Action.__init__(self, *args, **kwargs)
+            self.cron_tab = CronTab()
+
+        def get_description(self):
+            return 'Disable cron'
+
+        def run(self, args):
+            self.cron_tab.remove()
+            return self.get_parent()
+    
+    class ActionCron(Action):
+        KEY_CRON = 'cron'
+
+        def __init__(self, *args, **kwargs):
+            Terminal.Action.__init__(self, *args, **kwargs)
+            self.cron_tab = CronTab()
+
+        def get_description(self):
+            description = self._get_by_key(Terminal.Action.KEY_DESC, '')
+            crone = self._get_by_key(Terminal.ActionCron.KEY_CRON, '')
+            length = round(self._get_screen_width() / 2)
+            return f'{description} {crone: >{16}}'
+
+        def run(self, args):
+            cron = self._get_by_key(Terminal.ActionCron.KEY_CRON, None)
+            while cron is None:
+                cron = input('Enter cron schedule: ')
+                if not cron:
+                    return self.get_parent()
+                (error, cron) = self.cron_tab.validate(cron)
+                if error:
+                    self.print(error)
+            self.cron_tab.set_cron_time(cron)
+            self.cron_tab.apply()
+            return self.get_parent()
+
     def _init_commands(self):
         self.commands = {
             Terminal.Action.KEY_EXEC: Terminal.ActionMenu,
@@ -935,6 +1052,9 @@ class Terminal:
                     Terminal.ActionMenu.KEY_SUBM: {
                         Terminal.COMMAND_BACK: {
                             Terminal.Action.KEY_EXEC: Terminal.ActionBack,
+                        },
+                        'update-lxc': {
+                            Terminal.Action.KEY_EXEC: Terminal.ActionUpdateContainerProcessors,
                         },
                         'update-influx': {
                             Terminal.Action.KEY_EXEC: Terminal.ActionMenu,
@@ -965,12 +1085,54 @@ class Terminal:
                                 },
                             },
                         },
-                        'update-lxc': {
-                            Terminal.Action.KEY_EXEC: Terminal.ActionUpdateContainerProcessors,
+                        'update-docker': {
+                            Terminal.Action.KEY_EXEC: Terminal.ActionMenu,
+                            Terminal.Action.KEY_DESC: 'Update Docker Processor config',
+                            Terminal.ActionMenu.KEY_SUBM: {
+                                Terminal.COMMAND_BACK: {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionBack,
+                                },
+                                'DOCKER_ARCHITECTURE': {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,
+                                    Terminal.Action.KEY_HELP: 'Docker target architecture',
+                                },
+                                'DOCKER_OS': {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,
+                                    Terminal.Action.KEY_HELP: 'Docker target OS',
+                                },
+                            },
                         },
                         'update-crone': {
-                            Terminal.Action.KEY_EXEC: Terminal.Action,
-                            Terminal.Action.KEY_DESC: '(TODO) Update cron',
+                            Terminal.Action.KEY_EXEC: Terminal.ActionCronMenu,
+                            Terminal.ActionMenu.KEY_SUBM: {
+                                Terminal.COMMAND_BACK: {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionBack,
+                                },
+                                '12h': {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionCron,
+                                    Terminal.Action.KEY_DESC: 'Every 12 Hours',
+                                    Terminal.ActionCron.KEY_CRON: '0 */12 * * *',
+                                },
+                                '24h': {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionCron,
+                                    Terminal.Action.KEY_DESC: 'Every Midnight',
+                                    Terminal.ActionCron.KEY_CRON: '0 0 * * *',
+                                },
+                                '2d': {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionCron,
+                                    Terminal.Action.KEY_DESC: 'Even Days',
+                                    Terminal.ActionCron.KEY_CRON: '0 0 2-30/2 * *',
+                                },
+                                '5d': {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionCron,
+                                    Terminal.Action.KEY_DESC: 'Every 5 Days',
+                                    Terminal.ActionCron.KEY_CRON: '0 0 */5 * *',
+                                },
+                                'custom': {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionCron,
+                                    Terminal.Action.KEY_DESC: 'Custom',
+                                },
+                            },
                         },
                         'update-general': {
                             Terminal.Action.KEY_EXEC: Terminal.ActionMenu,
@@ -1006,22 +1168,17 @@ class Terminal:
                                     Terminal.ActionUpdateConfig.KEY_TYPE: int,
                                     Terminal.Action.KEY_HELP: 'Cache TTL',
                                 },
-                            },
-                        },
-                        'update-docker': {
-                            Terminal.Action.KEY_EXEC: Terminal.ActionMenu,
-                            Terminal.Action.KEY_DESC: 'Update Docker Processor config',
-                            Terminal.ActionMenu.KEY_SUBM: {
-                                Terminal.COMMAND_BACK: {
-                                    Terminal.Action.KEY_EXEC: Terminal.ActionBack,
-                                },
-                                'DOCKER_ARCHITECTURE': {
+                                'LOG_FILE': {
                                     Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,
-                                    Terminal.Action.KEY_HELP: 'Docker target architecture',
+                                    Terminal.Action.KEY_HELP: 'Log file path',
                                 },
-                                'DOCKER_OS': {
+                                'LOGGER_LOG_LEVEL': {
                                     Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,
-                                    Terminal.Action.KEY_HELP: 'Docker target OS',
+                                    Terminal.Action.KEY_HELP: 'Log level (critical/fatal/error/warning/info/debug/notset)',
+                                },
+                                'LOGGER_TERMINAL_LEVEL': {
+                                    Terminal.Action.KEY_EXEC: Terminal.ActionUpdateConfig,
+                                    Terminal.Action.KEY_HELP: 'Log terminal level (critical/fatal/error/warning/info/debug/notset)',
                                 },
                             },
                         },
