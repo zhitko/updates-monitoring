@@ -993,7 +993,7 @@ class Terminal:
         def get_description(self):
             enabled = self.cron_tab.is_enabled()
             current_cron = self.cron_tab.get_cron_time()
-            description = f'Cron is {'enabled' if enabled else 'disabled'} ({current_cron if current_cron and enabled else '-'})'
+            description = f'Cron is {"enabled" if enabled else "disabled"} ({current_cron if current_cron and enabled else "-"})'
             return description
 
     class ActionCronRemove(Action):
