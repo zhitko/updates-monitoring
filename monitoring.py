@@ -558,7 +558,6 @@ class CronTab:
     def apply(self):
         os.popen(self.CRONTAB_COMMAND_REMOVE).read()
         cron_command = f'{self.cron_time} {self.python_path} {self.script_path} process # {self.CRONTAB_ID}'
-        print(cron_command)
         os.popen(self.CRONTAB_COMMAND_ADD.format(cron_command = cron_command)).read()
 
     def remove(self):

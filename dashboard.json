@@ -1,0 +1,326 @@
+{
+    "__inputs": [
+      {
+        "name": "DS_INFLUXDB",
+        "label": "influxdb",
+        "description": "",
+        "type": "datasource",
+        "pluginId": "influxdb",
+        "pluginName": "InfluxDB"
+      }
+    ],
+    "__elements": {},
+    "__requires": [
+      {
+        "type": "grafana",
+        "id": "grafana",
+        "name": "Grafana",
+        "version": "11.2.2+security-01"
+      },
+      {
+        "type": "datasource",
+        "id": "influxdb",
+        "name": "InfluxDB",
+        "version": "1.0.0"
+      },
+      {
+        "type": "panel",
+        "id": "table",
+        "name": "Table",
+        "version": ""
+      }
+    ],
+    "annotations": {
+      "list": [
+        {
+          "builtIn": 1,
+          "datasource": {
+            "type": "grafana",
+            "uid": "-- Grafana --"
+          },
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "type": "dashboard"
+        }
+      ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "id": null,
+    "links": [],
+    "panels": [
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "${DS_INFLUXDB}"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              },
+              "inspect": false
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                }
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "remote_current_version"
+              },
+              "properties": [
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "applyToRow": false,
+                    "mode": "basic",
+                    "type": "color-background",
+                    "wrapText": false
+                  }
+                },
+                {
+                  "id": "displayName",
+                  "value": "Remote Current Version"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "remote_latest_version"
+              },
+              "properties": [
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "applyToRow": false,
+                    "mode": "basic",
+                    "type": "color-background",
+                    "wrapText": false
+                  }
+                },
+                {
+                  "id": "displayName",
+                  "value": "Remote Latest Version"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "is_current_update"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "is_latest_update"
+              },
+              "properties": [
+                {
+                  "id": "custom.hidden",
+                  "value": true
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {
+          "h": 19,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        },
+        "id": 1,
+        "options": {
+          "cellHeight": "sm",
+          "footer": {
+            "countRows": false,
+            "fields": "",
+            "reducer": [
+              "sum"
+            ],
+            "show": false
+          },
+          "frameIndex": 0,
+          "showHeader": true,
+          "sortBy": [
+            {
+              "desc": false,
+              "displayName": "Container ID"
+            }
+          ]
+        },
+        "pluginVersion": "11.2.2+security-01",
+        "targets": [
+          {
+            "datasource": {
+              "type": "influxdb",
+              "uid": "${DS_INFLUXDB}"
+            },
+            "query": "from(bucket: \"${Bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"updates\")\n  |> last()\n  |> limit(n:1)\n  |> group(columns: [\"contaier_id\"])\n  |> sort(columns: [\"contaier_id\", \"instance_name\"], desc: true)\n  |> map(fn: (r) => ({ r with \n      is_current_update: if r.local_current_digest != \"-\" and r.remote_current_digest != \"-\" and r.local_current_digest != r.remote_current_digest then \"rgba(39, 245, 41, 0.23)\" else \"transparent\",\n      is_latest_update: if r.local_current_digest != \"-\" and r.remote_latest_digest != \"-\" and r.local_current_digest != r.remote_latest_digest then \"rgba(39, 245, 41, 0.23)\" else \"transparent\",\n    }))",
+            "refId": "A"
+          }
+        ],
+        "title": "Panel Title",
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "_field": true,
+                "_measurement": true,
+                "_start": true,
+                "_stop": true,
+                "_time": true,
+                "_value": true,
+                "is_current_update": false,
+                "is_latest_update": false,
+                "local_current_digest": true,
+                "remote_current_digest": true,
+                "remote_latest_digest": true
+              },
+              "includeByName": {},
+              "indexByName": {
+                "_field": 3,
+                "_measurement": 4,
+                "_start": 0,
+                "_stop": 1,
+                "_time": 2,
+                "_value": 5,
+                "container_id": 6,
+                "instance_name": 7,
+                "instance_type": 8,
+                "is_current_update": 13,
+                "is_latest_update": 16,
+                "local_current_digest": 9,
+                "local_current_version": 10,
+                "remote_current_digest": 11,
+                "remote_current_version": 12,
+                "remote_latest_digest": 14,
+                "remote_latest_version": 15
+              },
+              "renameByName": {
+                "_field": "",
+                "_value": "",
+                "container": "Container",
+                "container_id": "Container ID",
+                "host": "Host",
+                "instance_name": "Instance Name",
+                "instance_type": "Instance Type",
+                "local_current_version": "Local Current Version",
+                "version": "New Version"
+              }
+            }
+          },
+          {
+            "id": "configFromData",
+            "options": {
+              "applyTo": {
+                "id": "byName",
+                "options": "remote_current_version"
+              },
+              "configRefId": "A",
+              "mappings": [
+                {
+                  "fieldName": "is_current_update",
+                  "handlerKey": "mappings.color",
+                  "reducerId": "allValues"
+                },
+                {
+                  "fieldName": "remote_current_version",
+                  "handlerKey": "mappings.value",
+                  "reducerId": "allValues"
+                }
+              ]
+            }
+          },
+          {
+            "id": "configFromData",
+            "options": {
+              "applyTo": {
+                "id": "byName",
+                "options": "remote_latest_version"
+              },
+              "configRefId": "A",
+              "mappings": [
+                {
+                  "fieldName": "remote_latest_version",
+                  "handlerKey": "mappings.value",
+                  "reducerId": "allValues"
+                },
+                {
+                  "fieldName": "is_latest_update",
+                  "handlerKey": "mappings.color",
+                  "reducerId": "allValues"
+                }
+              ]
+            }
+          }
+        ],
+        "type": "table"
+      }
+    ],
+    "refresh": "",
+    "schemaVersion": 39,
+    "tags": [],
+    "templating": {
+      "list": [
+        {
+          "current": {},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "definition": "buckets()",
+          "hide": 0,
+          "includeAll": false,
+          "multi": false,
+          "name": "Bucket",
+          "options": [],
+          "query": {
+            "query": "buckets()"
+          },
+          "refresh": 1,
+          "regex": "",
+          "skipUrlSync": false,
+          "sort": 0,
+          "type": "query"
+        }
+      ]
+    },
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "Docker Containers",
+    "uid": "de4wuk9nm9ds0c",
+    "version": 18,
+    "weekStart": ""
+  }
