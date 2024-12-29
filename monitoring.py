@@ -537,8 +537,8 @@ class CronTab:
     CRON_PATTERN = r"^((?<![\d\-\*])((\*\/)?([0-5]?[0-9])((\,|\-|\/)([0-5]?[0-9]))*|\*)[^\S\r\n]+((\*\/)?((2[0-3]|1[0-9]|[0-9]|00))((\,|\-|\/)(2[0-3]|1[0-9]|[0-9]|00))*|\*)[^\S\r\n]+((\*\/)?([1-9]|[12][0-9]|3[01])((\,|\-|\/)([1-9]|[12][0-9]|3[01]))*|\*)[^\S\r\n]+((\*\/)?([1-9]|1[0-2])((\,|\-|\/)([1-9]|1[0-2]))*|\*|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))[^\S\r\n]+((\*\/)?[0-6]((\,|\-|\/)[0-6])*|\*|00|(sun|mon|tue|wed|thu|fri|sat))[^\S\r\n]*(?:\bexpr \x60date \+\\\%W\x60 \\\% \d{1,2} \> \/dev\/null \|\|)?(?=$| |\'|\"))|@(annually|yearly|monthly|weekly|daily|hourly|reboot)$"
     CRONTAB_ID = 'MONITORING-SCRIPT-ID'
 
-    CRONTAB_COMMAND_LIST = 'crontab -l'
-    CRONTAB_COMMAND_REMOVE = f"crontab -l | grep -v '# {CRONTAB_ID}' | crontab -"
+    CRONTAB_COMMAND_LIST = 'crontab -l 2>/dev/null'
+    CRONTAB_COMMAND_REMOVE = f"crontab -l 2>/dev/null | grep -v '# {CRONTAB_ID}' | crontab -"
     CRONTAB_COMMAND_ADD = '(crontab -l; echo "{cron_command}") | crontab -'
 
     def __init__(self):
@@ -656,9 +656,16 @@ class Terminal:
     class ActionMenu(Action):
         KEY_SUBM = 'commands'
 
-        ARROW_UP_KEY = 'A'
-        ARROW_DOWN_KEY = 'B'
-        ENTER_KEY = '\n'
+        PAGE_SIZE = 10
+
+        KEY_HOME = 72
+        KEY_END = 70
+        KEY_ARROW_UP = 65
+        KEY_ARROW_DOWN = 66
+        KEY_PAGE_UP = 53
+        KEY_PAGE_DOWN = 54
+        KEY_BACKSPACE = 127
+        KEY_ENTER = 10
 
         def __init__(self, *args, **kwargs):
             Terminal.Action.__init__(self, *args, **kwargs)
@@ -700,12 +707,28 @@ class Terminal:
                 self._print_sub_menu(index == current_index, command, description)
                 active_command = action if index == current_index else active_command
             c = self._get_keypress()
-            if c == self.ARROW_UP_KEY:
+            if c == self.KEY_ARROW_UP:
                 return (None, current_index-1)
-            elif c == self.ARROW_DOWN_KEY:
+            elif c == self.KEY_ARROW_DOWN:
                 return (None, current_index+1)
-            elif c == self.ENTER_KEY:
+            elif c == self.KEY_PAGE_UP:
+                new_index = current_index-self.PAGE_SIZE
+                if new_index < 0:
+                    new_index = 0
+                return (None, new_index)
+            elif c == self.KEY_PAGE_DOWN:
+                new_index = current_index+self.PAGE_SIZE
+                if new_index >= len(self.actions):
+                    new_index = len(self.actions) - 1
+                return (None, new_index)
+            elif c == self.KEY_HOME:
+                return (None, 0)
+            elif c == self.KEY_END:
+                return (None, len(self.actions) - 1)
+            elif c == self.KEY_ENTER:
                 return (active_command, current_index)
+            elif c == self.KEY_BACKSPACE:
+                return (self.get_parent(), 0)
             else:
                 return (None, current_index)
 
@@ -720,14 +743,18 @@ class Terminal:
                 self.print(f"[ ] {line}")
 
         def _get_keypress(self):
-            fd = sys.stdin.fileno()
-            orig = termios.tcgetattr(fd)
-
+            old_settings = termios.tcgetattr(sys.stdin)
+            tty.setcbreak(sys.stdin.fileno())
             try:
-                tty.setcbreak(fd)
-                return sys.stdin.read(1)
+                while True:
+                    b = os.read(sys.stdin.fileno(), 3).decode()
+                    if len(b) == 3:
+                        k = ord(b[2])
+                    else:
+                        k = ord(b)
+                    return k
             finally:
-                termios.tcsetattr(fd, termios.TCSAFLUSH, orig)
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
         def get_sub_action(self, action):
             sub_commands = self.kwargs.get(Terminal.ActionMenu.KEY_SUBM, {})
