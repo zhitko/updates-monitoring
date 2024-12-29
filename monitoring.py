@@ -544,7 +544,8 @@ class CronTab:
     def __init__(self):
         self.cron_time = None
         self.python_path = sys.executable
-        self.script_path = file_path = os.path.realpath(__file__)
+        self.script_path = os.path.abspath(os.path.dirname(__file__))
+        self.file_name = os.path.basename(__file__)
 
     def is_enabled(self):
         crontab_list = os.popen(self.CRONTAB_COMMAND_LIST).read()
@@ -557,7 +558,15 @@ class CronTab:
 
     def apply(self):
         os.popen(self.CRONTAB_COMMAND_REMOVE).read()
-        cron_command = f'{self.cron_time} {self.python_path} {self.script_path} process # {self.CRONTAB_ID}'
+        cron_template = '{time} cd {path} && {python} {script} {args} # {id}'
+        cron_command = cron_template.format(
+            time = self.cron_time,
+            path = self.script_path,
+            python = self.python_path,
+            script = self.file_name,
+            args = 'process',
+            id = self.CRONTAB_ID,
+        )
         os.popen(self.CRONTAB_COMMAND_ADD.format(cron_command = cron_command)).read()
 
     def remove(self):
