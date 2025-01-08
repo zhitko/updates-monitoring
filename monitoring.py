@@ -151,7 +151,7 @@ def read_json(file_path, default=None):
 
 class DockerProcessor:
     class Commands:
-        base_command = "pct exec {container_id} -- bash -c '{command}'"
+        base_command = "/usr/sbin/pct exec {container_id} -- bash -c '{command}'"
         get_images = 'docker ps --format {{.Image}}'
         docker_inspect = 'docker inspect {image_name}'
         docker_buildx_inspect = 'docker buildx imagetools inspect {image_name} --format "{{{{json .}}}}"'
@@ -390,10 +390,10 @@ processors_mapping = {
 
 class PVEMonitoring:
     class Commands:
-        get_containers_ids = "pct list | awk '{if(NR>1) print $1}'"
-        get_container_name = "pct config {container_id} | awk '/hostname/ {{print $2}}'"
-        get_container_status = "pct status {container_id} | awk '/status/ {{print $2}}'"
-        check_container_is_template = 'pct config {container_id} | grep -q "template:" && echo "true" || echo "false"'
+        get_containers_ids = "/usr/sbin/pct list | awk '{if(NR>1) print $1}'"
+        get_container_name = "/usr/sbin/pct config {container_id} | awk '/hostname/ {{print $2}}'"
+        get_container_status = "/usr/sbin/pct status {container_id} | awk '/status/ {{print $2}}'"
+        check_container_is_template = '/usr/sbin/pct config {container_id} | grep -q "template:" && echo "true" || echo "false"'
 
     def __init__(self):
         self.checkers = ['docker', 'apt']
