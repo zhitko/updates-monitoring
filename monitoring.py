@@ -233,8 +233,8 @@ class DockerProcessor:
             }
         })
 
-    def _get_manifest(self, image_name, prefix, command):
-        if config.USE_CACHE:
+    def _get_manifest(self, image_name, prefix, command, ignore_cache=False):
+        if config.USE_CACHE and not ignore_cache:
             manifest, loaded_from_cache = self._get_from_cache(image_name, prefix)
             if loaded_from_cache:
                 return manifest
@@ -290,7 +290,7 @@ class DockerProcessor:
         image_name_without_tag, tag = self._parse_image_name(image_name)
 
         get_manifest_command = self.Commands.docker_inspect.format(image_name=image_name)
-        manifests_json = self._get_manifest(image_name, prefix, get_manifest_command)
+        manifests_json = self._get_manifest(image_name, prefix, get_manifest_command, True)
 
         for manifest_json in manifests_json:
             if manifest_json.get('Architecture') == config.DOCKER_ARCHITECTURE:
