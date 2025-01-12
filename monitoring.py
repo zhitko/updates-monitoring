@@ -83,7 +83,7 @@ logging.basicConfig(
     filename=config.LOG_FILE,
     filemode='a',
     format=logging_format,
-    datefmt='%H:%M:%S',
+    datefmt='%Y-%m-%d %H:%M:%S',
     level=logging.DEBUG
 )
 logger = logging.getLogger()
@@ -797,10 +797,15 @@ class Terminal:
             self.print('Args:', args)
             # TODO: add process arguments for DEBUG and CACHE
             # TODO: add progress spinner
+            
             monitoring = PVEMonitoring()
             res = monitoring.process()
             influx_sender = InfluxDBSender()
             influx_sender.send(res)
+
+            # is_need_update = input('Do you want to update containers? (yes/no)')
+            # if config.convert(is_need_update, bool):
+            #     return 
 
     class ActionUpdateConfig(Action):
         KEY_TYPE = 'type'
@@ -1071,9 +1076,21 @@ class Terminal:
             return self.get_parent()
 
     def _init_commands(self):
+        banner  = '██╗   ██╗██████╗ ██████╗  █████╗ ████████╗███████╗███████╗\n'
+        banner += '██║   ██║██╔══██╗██╔══██╗██╔══██╗╚══██╔══╝██╔════╝██╔════╝\n'
+        banner += '██║   ██║██████╔╝██║  ██║███████║   ██║   █████╗  ███████╗\n'
+        banner += '██║   ██║██╔═══╝ ██║  ██║██╔══██║   ██║   ██╔══╝  ╚════██║\n'
+        banner += '╚██████╔╝██║     ██████╔╝██║  ██║   ██║   ███████╗███████║\n'
+        banner += ' ╚═════╝ ╚═╝     ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚══════╝\n'
+        banner += '███╗   ███╗ ██████╗ ███╗   ██╗██╗████████╗ ██████╗ ██████╗ ██╗███╗   ██╗ ██████╗ \n'
+        banner += '████╗ ████║██╔═══██╗████╗  ██║██║╚══██╔══╝██╔═══██╗██╔══██╗██║████╗  ██║██╔════╝ \n'
+        banner += '██╔████╔██║██║   ██║██╔██╗ ██║██║   ██║   ██║   ██║██████╔╝██║██╔██╗ ██║██║  ███╗\n'
+        banner += '██║╚██╔╝██║██║   ██║██║╚██╗██║██║   ██║   ██║   ██║██╔══██╗██║██║╚██╗██║██║   ██║\n'
+        banner += '██║ ╚═╝ ██║╚██████╔╝██║ ╚████║██║   ██║   ╚██████╔╝██║  ██║██║██║ ╚████║╚██████╔╝\n'
+        banner += '╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ \n'
         self.commands = {
             Terminal.Action.KEY_EXEC: Terminal.ActionMenu,
-            Terminal.Action.KEY_DESC: 'Welcome to Monitoring Tool',
+            Terminal.Action.KEY_DESC: banner,
             Terminal.ActionMenu.KEY_SUBM: {
                 'help': {
                     Terminal.Action.KEY_EXEC: Terminal.ActionHelp,
