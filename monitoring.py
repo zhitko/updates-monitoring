@@ -34,6 +34,7 @@ class Config:
     DOCKER_OS = 'linux'
     DOCKER_REGISTRY_HUBS = 'lscr.io,ghcr.io'
     DOCKER_HUB_SEARCH_VERSION_URL = 'https://hub.docker.com/v2/repositories/{image_name}/tags?page_size=100&page=1&ordering=last_updated'
+    DOCKER_IMAGE_BLACK_LIST = 'portainer/agent'
     # -------------------------------------------------------------------------------------
     # Influx config
     # -------------------------------------------------------------------------------------
@@ -362,9 +363,13 @@ class DockerProcessor:
     def process(self):
         images = self._get_images()
         images_updates_info = {}
+        images_black_list = config.DOCKER_IMAGE_BLACK_LIST.split(',')
         for image_name in images:
             logger.info('*' * 50)
             logger.info(f'[{self.container_id}] {image_name}')
+            if any(black_image in image_name for black_image in images_black_list):
+                logger.info(f'{image_name} in BLACK list. Skip getting info')
+                continue
             local_repo_digest_info = self._get_local_docker_image_digest(image_name)
             logger.debug('local_repo_digest = %s' % local_repo_digest_info)
             remote_repo_digest_info = self._get_remote_docker_image_digest(image_name)
