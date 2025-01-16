@@ -178,6 +178,7 @@ class DockerProcessor:
         self.type = 'docker'
         self.cache = self.__load_cache() if config.USE_CACHE else {}
         self.registry_hubs_non_defaults = config.DOCKER_REGISTRY_HUBS.split(',')
+        self.docker_hub_image_version_cache = {}
         if config.DEBUG_MODE:
             try:
                 os.mkdir(config.MANIFESTS_FOLDER)
@@ -257,7 +258,13 @@ class DockerProcessor:
         url = config.DOCKER_HUB_SEARCH_VERSION_URL.format(image_name=image_name)
         version = ''
         try:
-            response = requests.get(url)
+            # trying to get response from cache to avoid blocking by docker hub
+            # (2 exact same requests in a row lead to blocking)
+            if url in self.docker_hub_image_version_cache:
+                response = self.docker_hub_image_version_cache.get(url)
+            else:
+                response = requests.get(url)
+                self.docker_hub_image_version_cache[url] = response
             response.raise_for_status()
             json_data = response.json()
             list_image_info = list(filter(
