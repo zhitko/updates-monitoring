@@ -268,7 +268,7 @@ class DockerProcessor:
             response.raise_for_status()
             json_data = response.json()
             list_image_info = list(filter(
-                lambda x: x.get('digest') == digest and x['name'] != 'latest', json_data.get('results', []))
+                lambda x: x.get('digest') == digest, json_data.get('results', []))
             )
             if len(list_image_info):
                 # try to find version with digits
@@ -276,7 +276,9 @@ class DockerProcessor:
                 # get version from list of versions
                 # if we found some version with digits else get first version from list
                 # version = versions[0]['name'] if versions else list_image_info[0]['name']
-                version = ', '.join([i.get('name') for i in list_image_info])
+                version = ', '.join([i.get('name') for i in list_image_info if i.get('name') != 'latest'])
+                if not version:
+                    version = ', '.join([i.get('name') for i in list_image_info])
             logger.info('Version was successfully found')
         except Exception as e:
             logger.error(f'Something wrong during getting image info on docker hub. Error = {e}')
