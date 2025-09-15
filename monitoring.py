@@ -492,7 +492,6 @@ class PVEMonitoring:
                 logger.info('-' * 100)
                 with processor(container_id) as proc:
                     images_updates_info = proc.process()
-                    containers_updates_info[container_id] = images_updates_info
                     containers_updates_info[container_id].update({
                         'images_updates_info': images_updates_info
                     })
