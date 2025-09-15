@@ -517,7 +517,6 @@ class InfluxDBSender:
     def _prepare_data(self, monitoring_info):
         data_raws = []
         data_raw_template = 'updates,container_id={container_id},container_name={container_name},instance_type={instance_type},instance_name={instance_name},local_current_digest={local_current_digest},local_current_version={local_current_version},remote_current_digest={remote_current_digest},remote_current_version={remote_current_version},remote_latest_digest={remote_latest_digest},remote_latest_version={remote_latest_version} value=1 {current_unix_time}'
-        logger.info(monitoring_info)
         for container_id, container_data in monitoring_info.items():
             container_name = container_data.get('container_name')
             images_updates_info = container_data.get('images_updates_info', {})
