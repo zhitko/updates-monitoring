@@ -427,7 +427,7 @@ class PVEMonitoring:
     def get_containers(self):
         containers_ids_and_names = self.__exec_command(self.Commands.get_containers_ids_and_names)
         containers = [{
-            'id': cid.split(',')[1].strip(),
+            'id': cid.split(',')[0].strip(),
             'container_name': cid.split(',')[-1].strip(),
             'name': self.__exec_command(self.Commands.get_container_name.format(container_id=cid))[0],
             'state': self.__exec_command(self.Commands.get_container_status.format(container_id=cid))[0],
@@ -439,7 +439,7 @@ class PVEMonitoring:
         containers_ids_and_names = self.__exec_command(self.Commands.get_containers_ids_and_names)
         if exclude_templates:
             for container_id_and_name in containers_ids_and_names:
-                container_id = container_id_and_name.split(',')[1].strip()
+                container_id = container_id_and_name.split(',')[0].strip()
                 is_template = self._check_container_is_template(container_id)
                 if is_template == 'true':
                     containers_ids_and_names.remove(container_id_and_name)
@@ -476,7 +476,7 @@ class PVEMonitoring:
         containers_ids_and_names = self._get_containers_ids_and_names()
         logger.info(f'Got containers = {containers_ids_and_names}')
         for container_id_and_name in containers_ids_and_names:
-            container_id = container_id_and_name.split(',')[1].strip()
+            container_id = container_id_and_name.split(',')[0].strip()
             container_name = container_id_and_name.split(',')[-1].strip()
             containers_updates_info[container_id] = {}
             containers_updates_info[container_id].update({
@@ -519,7 +519,7 @@ class InfluxDBSender:
         data_raws = []
         data_raw_template = 'updates,container_id={container_id},container_name={container_name},instance_type={instance_type},instance_name={instance_name},local_current_digest={local_current_digest},local_current_version={local_current_version},remote_current_digest={remote_current_digest},remote_current_version={remote_current_version},remote_latest_digest={remote_latest_digest},remote_latest_version={remote_latest_version} value=1 {current_unix_time}'
         for container_id, container_data in monitoring_info.items():
-            for container_name, images_updates_info in container_data.item():
+            for container_name, images_updates_info in container_data.items():
                 for instance_name, instance_data in images_updates_info.items():
                     data_raws.append(
                         data_raw_template.format(
