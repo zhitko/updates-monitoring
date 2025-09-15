@@ -404,7 +404,7 @@ processors_mapping = {
 
 class PVEMonitoring:
     class Commands:
-        get_containers_ids = "/usr/sbin/pct list | awk '{if(NR>1) print $1}'"
+        get_containers_ids_and_names = "/usr/sbin/pct list | awk '{if(NR>1) print $1, ",", $NF}'"
         get_container_name = "/usr/sbin/pct config {container_id} | awk '/hostname/ {{print $2}}'"
         get_container_status = "/usr/sbin/pct status {container_id} | awk '/status/ {{print $2}}'"
         check_container_is_template = '/usr/sbin/pct config {container_id} | grep -q "template:" && echo "true" || echo "false"'
@@ -425,23 +425,25 @@ class PVEMonitoring:
         return is_template
 
     def get_containers(self):
-        containers_ids = self.__exec_command(self.Commands.get_containers_ids)
+        containers_ids_and_names = self.__exec_command(self.Commands.get_containers_ids_and_names)
         containers = [{
-            'id': cid,
+            'id': cid.split(',')[1].strip(),
+            'container_name': cid.split(',')[-1].strip(),
             'name': self.__exec_command(self.Commands.get_container_name.format(container_id=cid))[0],
             'state': self.__exec_command(self.Commands.get_container_status.format(container_id=cid))[0],
-        } for cid in containers_ids if self._check_container_is_template(cid) != 'true']
+        } for cid in containers_ids_and_names if self._check_container_is_template(cid) != 'true']
         return containers
 
-    def _get_containers_ids(self, exclude_templates=True):
+    def _get_containers_ids_and_names(self, exclude_templates=True):
         logger.info('Get containers ids...')
-        containers_ids = self.__exec_command(self.Commands.get_containers_ids)
+        containers_ids_and_names = self.__exec_command(self.Commands.get_containers_ids_and_names)
         if exclude_templates:
-            for container_id in containers_ids:
+            for container_id_and_name in containers_ids_and_names:
+                container_id = container_id_and_name.split(',')[1].strip()
                 is_template = self._check_container_is_template(container_id)
                 if is_template == 'true':
-                    containers_ids.remove(container_id)
-        return containers_ids
+                    containers_ids_and_names.remove(container_id_and_name)
+        return containers_ids_and_names
 
     def process(self):
         """
@@ -471,9 +473,15 @@ class PVEMonitoring:
         """
         logger.info('Checking updates...')
         containers_updates_info = {}
-        containers_ids = self._get_containers_ids()
-        logger.info(f'Got containers = {containers_ids}')
-        for container_id in containers_ids:
+        containers_ids_and_names = self._get_containers_ids_and_names()
+        logger.info(f'Got containers = {containers_ids_and_names}')
+        for container_id_and_name in containers_ids_and_names:
+            container_id = container_id_and_name.split(',')[1].strip()
+            container_name = container_id_and_name.split(',')[-1].strip()
+            containers_updates_info[container_id] = {}
+            containers_updates_info[container_id].update({
+                'container_name': container_name
+            })
             processors_labels = config.CONTAINER_PROCESSORS_MAPPING.get(container_id, [])
             for processor_label in processors_labels:
                 processor = processors_mapping.get(processor_label)
@@ -485,6 +493,9 @@ class PVEMonitoring:
                 with processor(container_id) as proc:
                     images_updates_info = proc.process()
                     containers_updates_info[container_id] = images_updates_info
+                    containers_updates_info[container_id].update({
+                        'images_updates_info': images_updates_info
+                    })
         logger.info('-' * 100)
         logger.info(f'Updating info successfully collected')
         logger.info('-' * 100)
@@ -506,23 +517,25 @@ class InfluxDBSender:
 
     def _prepare_data(self, monitoring_info):
         data_raws = []
-        data_raw_template = 'updates,container_id={container_id},instance_type={instance_type},instance_name={instance_name},local_current_digest={local_current_digest},local_current_version={local_current_version},remote_current_digest={remote_current_digest},remote_current_version={remote_current_version},remote_latest_digest={remote_latest_digest},remote_latest_version={remote_latest_version} value=1 {current_unix_time}'
+        data_raw_template = 'updates,container_id={container_id},container_name={container_name},instance_type={instance_type},instance_name={instance_name},local_current_digest={local_current_digest},local_current_version={local_current_version},remote_current_digest={remote_current_digest},remote_current_version={remote_current_version},remote_latest_digest={remote_latest_digest},remote_latest_version={remote_latest_version} value=1 {current_unix_time}'
         for container_id, container_data in monitoring_info.items():
-            for instance_name, instance_data in container_data.items():
-                data_raws.append(
-                    data_raw_template.format(
-                        container_id=self._escape(container_id),
-                        instance_type=self._escape(instance_data.get('type')),
-                        instance_name=self._escape(instance_name),
-                        local_current_digest=self._escape(instance_data.get('local_current_digest')),
-                        local_current_version=self._escape(instance_data.get('local_current_version')),
-                        remote_current_digest=self._escape(instance_data.get('remote_current_digest')),
-                        remote_current_version=self._escape(instance_data.get('remote_current_version')),
-                        remote_latest_digest=self._escape(instance_data.get('remote_latest_digest')),
-                        remote_latest_version=self._escape(instance_data.get('remote_latest_version')),
-                        current_unix_time=time.time_ns()
+            for container_name, images_updates_info in container_data.item():
+                for instance_name, instance_data in images_updates_info.items():
+                    data_raws.append(
+                        data_raw_template.format(
+                            container_id=self._escape(container_id),
+                            container_name=self._escape(container_name),
+                            instance_type=self._escape(instance_data.get('type')),
+                            instance_name=self._escape(instance_name),
+                            local_current_digest=self._escape(instance_data.get('local_current_digest')),
+                            local_current_version=self._escape(instance_data.get('local_current_version')),
+                            remote_current_digest=self._escape(instance_data.get('remote_current_digest')),
+                            remote_current_version=self._escape(instance_data.get('remote_current_version')),
+                            remote_latest_digest=self._escape(instance_data.get('remote_latest_digest')),
+                            remote_latest_version=self._escape(instance_data.get('remote_latest_version')),
+                            current_unix_time=time.time_ns()
+                        )
                     )
-                )
         data_raw = '\n'.join(data_raws)
         return data_raw
 
