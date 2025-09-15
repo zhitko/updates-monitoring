@@ -404,7 +404,7 @@ processors_mapping = {
 
 class PVEMonitoring:
     class Commands:
-        get_containers_ids_and_names = "/usr/sbin/pct list | awk '{if(NR>1) print $1, ",", $NF}'"
+        get_containers_ids_and_names = "/usr/sbin/pct list | awk '{if(NR>1) print $1, \",\", $NF}'"
         get_container_name = "/usr/sbin/pct config {container_id} | awk '/hostname/ {{print $2}}'"
         get_container_status = "/usr/sbin/pct status {container_id} | awk '/status/ {{print $2}}'"
         check_container_is_template = '/usr/sbin/pct config {container_id} | grep -q "template:" && echo "true" || echo "false"'
