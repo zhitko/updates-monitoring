@@ -519,23 +519,24 @@ class InfluxDBSender:
         data_raws = []
         data_raw_template = 'updates,container_id={container_id},container_name={container_name},instance_type={instance_type},instance_name={instance_name},local_current_digest={local_current_digest},local_current_version={local_current_version},remote_current_digest={remote_current_digest},remote_current_version={remote_current_version},remote_latest_digest={remote_latest_digest},remote_latest_version={remote_latest_version} value=1 {current_unix_time}'
         for container_id, container_data in monitoring_info.items():
-            for container_name, images_updates_info in container_data.items():
-                for instance_name, instance_data in images_updates_info.items():
-                    data_raws.append(
-                        data_raw_template.format(
-                            container_id=self._escape(container_id),
-                            container_name=self._escape(container_name),
-                            instance_type=self._escape(instance_data.get('type')),
-                            instance_name=self._escape(instance_name),
-                            local_current_digest=self._escape(instance_data.get('local_current_digest')),
-                            local_current_version=self._escape(instance_data.get('local_current_version')),
-                            remote_current_digest=self._escape(instance_data.get('remote_current_digest')),
-                            remote_current_version=self._escape(instance_data.get('remote_current_version')),
-                            remote_latest_digest=self._escape(instance_data.get('remote_latest_digest')),
-                            remote_latest_version=self._escape(instance_data.get('remote_latest_version')),
-                            current_unix_time=time.time_ns()
-                        )
+            container_name = container_data.get('container_name')
+            images_updates_info = container_data.get('images_updates_info', {})
+            for instance_name, instance_data in images_updates_info.items():
+                data_raws.append(
+                    data_raw_template.format(
+                        container_id=self._escape(container_id),
+                        container_name=self._escape(container_name),
+                        instance_type=self._escape(instance_data.get('type')),
+                        instance_name=self._escape(instance_name),
+                        local_current_digest=self._escape(instance_data.get('local_current_digest')),
+                        local_current_version=self._escape(instance_data.get('local_current_version')),
+                        remote_current_digest=self._escape(instance_data.get('remote_current_digest')),
+                        remote_current_version=self._escape(instance_data.get('remote_current_version')),
+                        remote_latest_digest=self._escape(instance_data.get('remote_latest_digest')),
+                        remote_latest_version=self._escape(instance_data.get('remote_latest_version')),
+                        current_unix_time=time.time_ns()
                     )
+                )
         data_raw = '\n'.join(data_raws)
         return data_raw
 
