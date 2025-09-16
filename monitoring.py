@@ -429,9 +429,9 @@ class PVEMonitoring:
         containers = [{
             'id': cid.split(',')[0].strip(),
             'container_name': cid.split(',')[-1].strip(),
-            'name': self.__exec_command(self.Commands.get_container_name.format(container_id=cid))[0],
-            'state': self.__exec_command(self.Commands.get_container_status.format(container_id=cid))[0],
-        } for cid in containers_ids_and_names if self._check_container_is_template(cid) != 'true']
+            'name': self.__exec_command(self.Commands.get_container_name.format(container_id=cid.split(',')[0].strip()))[0],
+            'state': self.__exec_command(self.Commands.get_container_status.format(container_id=cid.split(',')[0].strip()))[0],
+        } for cid in containers_ids_and_names if self._check_container_is_template(cid.split(',')[0].strip()) != 'true']
         return containers
 
     def _get_containers_ids_and_names(self, exclude_templates=True):
